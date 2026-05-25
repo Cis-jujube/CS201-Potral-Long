@@ -1,0 +1,317 @@
+@import "tailwindcss";
+@import "../styles/tokens.css";
+
+:root {
+  --font-manrope: "Aptos", "Segoe UI", system-ui, sans-serif;
+  --font-jetbrains: "Cascadia Code", "Consolas", monospace;
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --font-sans: var(--font-manrope);
+  --font-mono: var(--font-jetbrains);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-manrope), system-ui, sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+  border-radius: 8px;
+}
+
+@layer components {
+  .app-shell {
+    @apply flex min-h-screen bg-[var(--bg)] text-[var(--text)];
+  }
+
+  .page-container {
+    @apply mx-auto flex w-full max-w-[1560px] flex-col gap-6 px-3 pb-10 pt-3 sm:px-6 lg:px-8;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--panel-radius);
+    box-shadow: var(--card-shadow);
+  }
+
+  .panel-gradient-soft {
+    background: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--surface) 94%, var(--accent-soft) 6%),
+      var(--surface)
+    );
+    border-color: var(--border);
+  }
+
+  .surface-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    box-shadow: var(--card-shadow);
+    @apply transition duration-300;
+  }
+
+  .surface-card-hover {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    @apply transition duration-200;
+    box-shadow: var(--card-shadow);
+  }
+
+  .surface-card-hover:hover {
+    border-color: color-mix(in oklab, var(--accent) 24%, var(--border) 76%);
+    box-shadow: var(--card-shadow-hover);
+  }
+
+  .surface-muted {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--card-radius) - 2px);
+  }
+
+  .kicker {
+    @apply text-xs font-semibold uppercase tracking-[0.16em];
+    color: var(--text-muted);
+  }
+
+  .text-muted {
+    color: var(--text-muted);
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .button-solid {
+    @apply inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm font-semibold transition;
+    background: var(--accent);
+    color: #ffffff;
+  }
+
+  .button-solid:hover,
+  .button-primary:hover {
+    filter: brightness(1.08);
+  }
+
+  .button-primary {
+    @apply inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm font-semibold transition;
+    background: var(--accent);
+    color: #ffffff;
+  }
+
+  .button-ghost {
+    @apply inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm font-semibold transition;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+
+  .button-ghost:hover {
+    background: var(--surface);
+  }
+
+  .bento-canvas {
+    @apply grid grid-cols-1 auto-rows-[minmax(130px,_auto)] gap-4 md:grid-cols-6 md:auto-rows-[minmax(120px,_auto)] lg:grid-cols-12 lg:auto-rows-[minmax(132px,_auto)];
+  }
+
+  .bento-tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    box-shadow: var(--card-shadow);
+    @apply p-5 transition duration-200;
+  }
+
+  .bento-tile:hover {
+    border-color: color-mix(in oklab, var(--accent) 18%, var(--border) 82%);
+    box-shadow: var(--card-shadow-hover);
+  }
+
+  .bento-feature-tile {
+    @apply relative overflow-hidden p-5 transition duration-200;
+    border-radius: var(--card-radius);
+    box-shadow: var(--card-shadow);
+    border: 1px solid var(--module-border, var(--border));
+    background: radial-gradient(
+        circle at 80% -10%,
+        var(--module-hero-highlight, rgba(11, 114, 217, 0.12)),
+        rgba(255, 255, 255, 0.02) 48%
+      ),
+      linear-gradient(
+        142deg,
+        var(--module-hero-start, #0b72d9),
+        var(--module-hero-end, #2f7ecb)
+      );
+    color: #f6f8ff;
+  }
+
+  .bento-feature-tile:hover {
+    box-shadow: var(--card-shadow-hover);
+  }
+
+  .bento-stat-tile {
+    @apply p-5 transition duration-200;
+    border-radius: var(--card-radius);
+    border: 1px solid var(--border);
+    box-shadow: var(--card-shadow);
+    background: linear-gradient(165deg, var(--surface), var(--surface-2));
+  }
+
+  .bento-stat-tile:hover {
+    box-shadow: var(--card-shadow-hover);
+  }
+
+  :root[data-theme="dark"] .bento-stat-tile {
+    background: linear-gradient(165deg, #151a22, #121824);
+  }
+
+  .module-tone-border {
+    border: 1px solid var(--module-border, var(--border));
+    box-shadow: var(--card-shadow);
+  }
+
+  .module-tone-border:hover {
+    border-color: color-mix(in oklab, var(--accent) 20%, var(--module-border, var(--border)) 80%);
+    box-shadow: var(--card-shadow-hover);
+  }
+
+  .module-tone-context .surface-muted {
+    background: var(--module-subtle-bg, var(--surface-2));
+    border-color: var(--module-subtle-border, var(--border));
+  }
+
+  .module-tone-context .surface-card,
+  .module-tone-context .surface-card-hover {
+    background: var(--surface);
+    border-color: var(--module-subtle-border, var(--border));
+  }
+
+  .module-tone-violet {
+    --module-border: var(--tone-violet-border);
+    --module-subtle-bg: var(--tone-violet-subtle-bg);
+    --module-subtle-border: var(--tone-violet-subtle-border);
+    --module-hero-start: var(--tone-violet-hero-start);
+    --module-hero-end: var(--tone-violet-hero-end);
+    --module-hero-highlight: var(--tone-violet-hero-highlight);
+    background: linear-gradient(180deg, var(--tone-violet-bg-start), var(--tone-violet-bg-end));
+  }
+
+  .module-tone-blue {
+    --module-border: var(--tone-blue-border);
+    --module-subtle-bg: var(--tone-blue-subtle-bg);
+    --module-subtle-border: var(--tone-blue-subtle-border);
+    --module-hero-start: var(--tone-blue-hero-start);
+    --module-hero-end: var(--tone-blue-hero-end);
+    --module-hero-highlight: var(--tone-blue-hero-highlight);
+    background: linear-gradient(180deg, var(--tone-blue-bg-start), var(--tone-blue-bg-end));
+  }
+
+  .module-tone-cyan {
+    --module-border: var(--tone-cyan-border);
+    --module-subtle-bg: var(--tone-cyan-subtle-bg);
+    --module-subtle-border: var(--tone-cyan-subtle-border);
+    --module-hero-start: var(--tone-cyan-hero-start);
+    --module-hero-end: var(--tone-cyan-hero-end);
+    --module-hero-highlight: var(--tone-cyan-hero-highlight);
+    background: linear-gradient(180deg, var(--tone-cyan-bg-start), var(--tone-cyan-bg-end));
+  }
+
+  .module-tone-emerald {
+    --module-border: var(--tone-emerald-border);
+    --module-subtle-bg: var(--tone-emerald-subtle-bg);
+    --module-subtle-border: var(--tone-emerald-subtle-border);
+    --module-hero-start: var(--tone-emerald-hero-start);
+    --module-hero-end: var(--tone-emerald-hero-end);
+    --module-hero-highlight: var(--tone-emerald-hero-highlight);
+    background: linear-gradient(180deg, var(--tone-emerald-bg-start), var(--tone-emerald-bg-end));
+  }
+
+  .module-tone-amber {
+    --module-border: var(--tone-amber-border);
+    --module-subtle-bg: var(--tone-amber-subtle-bg);
+    --module-subtle-border: var(--tone-amber-subtle-border);
+    --module-hero-start: var(--tone-amber-hero-start);
+    --module-hero-end: var(--tone-amber-hero-end);
+    --module-hero-highlight: var(--tone-amber-hero-highlight);
+    background: linear-gradient(180deg, var(--tone-amber-bg-start), var(--tone-amber-bg-end));
+  }
+
+  .module-tone-rose {
+    --module-border: var(--tone-rose-border);
+    --module-subtle-bg: var(--tone-rose-subtle-bg);
+    --module-subtle-border: var(--tone-rose-subtle-border);
+    --module-hero-start: var(--tone-rose-hero-start);
+    --module-hero-end: var(--tone-rose-hero-end);
+    --module-hero-highlight: var(--tone-rose-hero-highlight);
+    background: linear-gradient(180deg, var(--tone-rose-bg-start), var(--tone-rose-bg-end));
+  }
+
+  .module-tone-subtle-violet {
+    background: var(--tone-violet-subtle-bg);
+    border: 1px solid var(--tone-violet-subtle-border);
+  }
+
+  .module-tone-subtle-blue {
+    background: var(--tone-blue-subtle-bg);
+    border: 1px solid var(--tone-blue-subtle-border);
+  }
+
+  .module-tone-subtle-cyan {
+    background: var(--tone-cyan-subtle-bg);
+    border: 1px solid var(--tone-cyan-subtle-border);
+  }
+
+  .module-tone-subtle-emerald {
+    background: var(--tone-emerald-subtle-bg);
+    border: 1px solid var(--tone-emerald-subtle-border);
+  }
+
+  .module-tone-subtle-amber {
+    background: var(--tone-amber-subtle-bg);
+    border: 1px solid var(--tone-amber-subtle-border);
+  }
+
+  .module-tone-subtle-rose {
+    background: var(--tone-rose-subtle-bg);
+    border: 1px solid var(--tone-rose-subtle-border);
+  }
+}
+
+@keyframes weekFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.week-switch-fade {
+  animation: weekFadeIn 260ms ease;
+}
