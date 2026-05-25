@@ -2,6 +2,9 @@
 
 A polished, week-driven university course portal built with Next.js App Router, TypeScript, and Tailwind CSS.
 
+Username：test
+Password：T7q!4Lz?
+
 ## Product Highlights
 - 7-week learning navigation with persistent week context (`Week 1` to `Week 7`)
 - Top navigation + mobile drawer (sidebar-free shell)
