@@ -29,10 +29,12 @@ const getStateCookieOptions = () => ({
   path: "/api/auth/teacher",
 });
 
-const redirectToLogin = (request: NextRequest, error: string) => {
+const redirectToLogin = (request: NextRequest, error: string, nextPath = "/") => {
   const loginUrl = request.nextUrl.clone();
   loginUrl.pathname = "/login";
   loginUrl.search = "";
+  loginUrl.searchParams.set("next", nextPath);
+  loginUrl.searchParams.set("local", "1");
   loginUrl.searchParams.set("ssoError", error);
   return NextResponse.redirect(loginUrl);
 };
@@ -45,7 +47,7 @@ export async function GET(request: NextRequest) {
   );
 
   if (!code || !state || !statePayload || statePayload.state !== state) {
-    const response = redirectToLogin(request, "invalid_teacher_sso");
+    const response = redirectToLogin(request, "invalid_teacher_sso", statePayload?.nextPath);
     response.cookies.set(TEACHER_SSO_STATE_COOKIE, "", { ...getStateCookieOptions(), maxAge: 0 });
     return response;
   }
@@ -74,7 +76,7 @@ export async function GET(request: NextRequest) {
     response.cookies.set(TEACHER_SSO_STATE_COOKIE, "", { ...getStateCookieOptions(), maxAge: 0 });
     return response;
   } catch {
-    const response = redirectToLogin(request, "teacher_sso_failed");
+    const response = redirectToLogin(request, "teacher_sso_failed", statePayload.nextPath);
     response.cookies.set(TEACHER_SSO_STATE_COOKIE, "", { ...getStateCookieOptions(), maxAge: 0 });
     return response;
   }

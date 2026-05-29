@@ -6,6 +6,7 @@ import {
   TEACHER_SSO_STATE_MAX_AGE_SECONDS,
   buildTeacherAuthorizeUrl,
   createTeacherSsoState,
+  isTeacherSsoConfigured,
   normalizeNextPath,
 } from "@/lib/auth/teacherSso";
 
@@ -18,6 +19,16 @@ const getCookieOptions = () => ({
 
 export async function GET(request: NextRequest) {
   const nextPath = normalizeNextPath(request.nextUrl.searchParams.get("next"));
+
+  if (!isTeacherSsoConfigured()) {
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/login";
+    loginUrl.search = "";
+    loginUrl.searchParams.set("next", nextPath);
+    loginUrl.searchParams.set("local", "1");
+    loginUrl.searchParams.set("ssoError", "teacher_sso_not_configured");
+    return NextResponse.redirect(loginUrl);
+  }
 
   try {
     const { payload, token } = await createTeacherSsoState(nextPath);
@@ -32,6 +43,7 @@ export async function GET(request: NextRequest) {
     loginUrl.pathname = "/login";
     loginUrl.search = "";
     loginUrl.searchParams.set("next", nextPath);
+    loginUrl.searchParams.set("local", "1");
     loginUrl.searchParams.set("ssoError", "teacher_sso_not_configured");
     return NextResponse.redirect(loginUrl);
   }

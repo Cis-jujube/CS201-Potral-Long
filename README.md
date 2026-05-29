@@ -68,11 +68,19 @@ Copy `.env.example` to `.env.local`.
 ```bash
 COURSE_API_BASE_URL=
 COURSE_API_KEY=
+CS201_PORTAL_SESSION_SECRET=
+CS201_REQUIRE_TEACHER_SSO=
+TEACHER_SSO_BASE_URL=
+TEACHER_SSO_CLIENT_ID=cs201-portal
+TEACHER_SSO_CLIENT_SECRET=
+TEACHER_SESSION_ENCRYPTION_SECRET=
 ```
 
 Notes:
 - If `COURSE_API_BASE_URL` is missing or professor API fails, app automatically falls back to mock data.
 - Secrets are never hardcoded in UI components.
+- Leave `CS201_REQUIRE_TEACHER_SSO` empty for local fallback login. Set it to `1` only after the professor site deploys `/portal-sso/authorize/` and `/portal-sso/token/`.
+- When teacher SSO is required, students are redirected to Repolab and the portal stores only an encrypted httpOnly teacher-session cookie. Local login remains available through `/login?local=1` for development and failure fallback.
 
 ## Run Locally
 ```bash
@@ -90,6 +98,12 @@ npm run lint        # lint checks
 npm run test        # unit/component tests with coverage
 npm run test:watch  # watch mode tests
 npm run test:e2e    # Playwright e2e
+```
+
+If `localhost:3000` is already occupied by another local app, run e2e on a free port:
+
+```bash
+E2E_PORT=3302 npm run test:e2e
 ```
 
 ## Theme Switching

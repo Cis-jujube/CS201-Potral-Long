@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { CheckCircle2, Download, ExternalLink, FileCode2, Send } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, FileCode2, RefreshCw, Send } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -454,6 +454,24 @@ function QuizQuestionDetail({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const isOpen = question.status === "open" && question.answerFields.length > 0;
 
+  useEffect(() => {
+    setAnswers({});
+    setSubmitResult(null);
+    setSubmitError(null);
+  }, [question.problemId]);
+
+  useEffect(() => {
+    setAnswers({});
+    setSubmitError(null);
+  }, [question.submitContextId]);
+
+  const refreshQuizQuestion = () => {
+    setAnswers({});
+    setSubmitResult(null);
+    setSubmitError(null);
+    onQuizRefresh?.();
+  };
+
   const submit = async () => {
     setSubmitting(true);
     setSubmitError(null);
@@ -469,9 +487,7 @@ function QuizQuestionDetail({
         throw new Error(payload.error ?? "Quiz submission failed.");
       }
       setSubmitResult(payload.result);
-      if (payload.result.status === "passed") {
-        onQuizRefresh?.();
-      }
+      onQuizRefresh?.();
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Quiz submission failed.");
     } finally {
@@ -483,6 +499,17 @@ function QuizQuestionDetail({
     <section className="surface-card scroll-mt-72 overflow-hidden p-0">
       <DocumentHeader kicker="Quiz Detail" title={question.label} subtitle={question.title} sourceHref={question.sourceHref}>
         <div className="flex flex-wrap gap-2">
+          {onQuizRefresh ? (
+            <button
+              type="button"
+              className="button-ghost px-2.5 py-1.5 text-xs"
+              disabled={submitting}
+              onClick={refreshQuizQuestion}
+            >
+              <RefreshCw className="mr-1 size-3.5" />
+              Refresh question
+            </button>
+          ) : null}
           {entry.progressLabel ? <span className="badge">{entry.progressLabel}</span> : null}
           <span className={`badge ${quizStatusBadgeClass(question.status)}`}>{quizStatusLabel(question.status)}</span>
           {entry.dueDate ? <span className="badge">Due {entry.dueDate}</span> : null}

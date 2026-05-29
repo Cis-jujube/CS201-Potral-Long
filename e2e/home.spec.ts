@@ -1,24 +1,39 @@
 import { expect, type Page, test } from "@playwright/test";
 
 const login = async (page: Page) => {
-  await page.goto("/login");
+  await page.goto("/login?local=1");
   await page.getByLabel("Username").fill(process.env.E2E_PORTAL_USERNAME ?? "cs201");
   await page.getByLabel("Password").fill(process.env.E2E_PORTAL_PASSWORD ?? "cs201");
   await page.getByRole("button", { name: "Login" }).click();
   await expect(page).toHaveURL(/\/$/);
 };
 
+const requiresTeacherSso = ["1", "true", "yes", "on"].includes(
+  process.env.CS201_REQUIRE_TEACHER_SSO?.trim().toLowerCase() ?? "",
+);
+
 test.beforeEach(async ({ page }, testInfo) => {
-  if (testInfo.title === "unauthenticated access redirects to login") {
+  if (testInfo.title === "unauthenticated access uses the configured login flow") {
     return;
   }
 
   await login(page);
 });
 
-test("unauthenticated access redirects to login", async ({ page }) => {
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/login\?next=%2F$/);
+test("unauthenticated access uses the configured login flow", async ({ page }) => {
+  await page.goto("/homework");
+
+  if (requiresTeacherSso && !process.env.TEACHER_SSO_CLIENT_SECRET) {
+    await expect(page).toHaveURL(/\/login\?next=%2Fhomework&local=1&ssoError=teacher_sso_not_configured$/);
+    return;
+  }
+
+  if (requiresTeacherSso) {
+    await expect(page).toHaveURL(/\/portal-sso\/authorize\/|\/login/);
+    return;
+  }
+
+  await expect(page).toHaveURL(/\/login\?next=%2Fhomework$/);
 });
 
 test("week selection remains functional after reload", async ({ page }) => {
@@ -223,8 +238,11 @@ test("homework shows new homework-question-progress flow", async ({ page }) => {
   await expect(page.getByText(/Answer:/i)).toHaveCount(0);
   await page.getByLabel("(0)").fill("Create");
   await page.getByRole("button", { name: "Submit" }).click();
-  await expect(page.getByText("1/24 passed")).toBeVisible();
-  await expect(page.getByText("99 attempts left")).toBeVisible();
+  await expect(page.getByText("Submission checked.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh question" })).toBeVisible();
+  await page.getByLabel("(0)").fill("Retry");
+  await page.getByRole("button", { name: "Refresh question" }).click();
+  await expect(page.getByLabel("(0)")).toHaveValue("");
 
   await page.getByRole("button", { name: /AI Reflection/ }).click();
   await expect(page.getByRole("link", { name: /Download AI reflection template/ })).toBeVisible();

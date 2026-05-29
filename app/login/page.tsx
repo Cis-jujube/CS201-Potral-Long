@@ -16,6 +16,8 @@ export default function LoginPage() {
   const safeNextPath = nextPath.startsWith("/") && !nextPath.startsWith("//") ? nextPath : "/";
   const teacherLoginHref = `/api/auth/teacher/start?next=${encodeURIComponent(safeNextPath)}`;
   const ssoError = searchParams.get("ssoError");
+  const showLocalLogin = searchParams.get("local") === "1" || Boolean(ssoError);
+  const localLoginHref = `/login?local=1&next=${encodeURIComponent(safeNextPath)}`;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -52,16 +54,10 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <form className="space-y-4" onSubmit={handleSubmit}>
+        <div className="space-y-4">
           <a className="button-ghost w-full" href={teacherLoginHref}>
             Login with Repolab
           </a>
-
-          <div className="flex items-center gap-3 text-xs text-muted">
-            <span className="h-px flex-1 bg-[var(--border)]" />
-            <span>or use local portal login</span>
-            <span className="h-px flex-1 bg-[var(--border)]" />
-          </div>
 
           {ssoError ? (
             <p className="rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-[var(--warning)]">
@@ -69,34 +65,48 @@ export default function LoginPage() {
             </p>
           ) : null}
 
-          <label className="block">
-            <span className="text-sm font-semibold">Username</span>
-            <input
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none"
-              autoComplete="username"
-              required
-            />
-          </label>
-          <label className="block">
-            <span className="text-sm font-semibold">Password</span>
-            <input
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              type="password"
-              className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none"
-              autoComplete="current-password"
-              required
-            />
-          </label>
+          {showLocalLogin ? (
+            <form className="space-y-4" onSubmit={handleSubmit}>
+              <div className="flex items-center gap-3 text-xs text-muted">
+                <span className="h-px flex-1 bg-[var(--border)]" />
+                <span>local portal login</span>
+                <span className="h-px flex-1 bg-[var(--border)]" />
+              </div>
 
-          {error ? <p className="rounded-xl bg-rose-500/10 px-3 py-2 text-sm text-[var(--danger)]">{error}</p> : null}
+              <label className="block">
+                <span className="text-sm font-semibold">Username</span>
+                <input
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none"
+                  autoComplete="username"
+                  required
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-semibold">Password</span>
+                <input
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  type="password"
+                  className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none"
+                  autoComplete="current-password"
+                  required
+                />
+              </label>
 
-          <button type="submit" className="button-solid w-full" disabled={submitting}>
-            {submitting ? "Signing in..." : "Login"}
-          </button>
-        </form>
+              {error ? <p className="rounded-xl bg-rose-500/10 px-3 py-2 text-sm text-[var(--danger)]">{error}</p> : null}
+
+              <button type="submit" className="button-solid w-full" disabled={submitting}>
+                {submitting ? "Signing in..." : "Login"}
+              </button>
+            </form>
+          ) : (
+            <a className="block text-center text-sm font-semibold text-[var(--accent)]" href={localLoginHref}>
+              Use local portal login
+            </a>
+          )}
+        </div>
       </section>
     </div>
   );

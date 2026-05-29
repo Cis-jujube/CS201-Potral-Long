@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 
+import { GET as START } from "@/app/api/auth/teacher/start/route";
 import { GET as CALLBACK } from "@/app/api/auth/teacher/callback/route";
+import { GET as STATUS } from "@/app/api/auth/teacher/status/route";
 import {
   TEACHER_SESSION_COOKIE,
   TEACHER_SSO_STATE_COOKIE,
@@ -9,8 +11,10 @@ import {
   exchangeTeacherSsoCode,
   getTeacherSessionPayload,
   getTeacherSsoStatePayload,
+  isTeacherSsoConfigured,
+  isTeacherSsoRequired,
 } from "@/lib/auth/teacherSso";
-import { PORTAL_SESSION_COOKIE, getSessionPayload } from "@/lib/auth/session";
+import { PORTAL_SESSION_COOKIE, createSessionToken, getSessionPayload } from "@/lib/auth/session";
 
 describe("teacher SSO", () => {
   const originalEnv = process.env;
@@ -91,6 +95,28 @@ describe("teacher SSO", () => {
     });
   });
 
+  it("reports SSO configuration and required mode", () => {
+    expect(isTeacherSsoConfigured()).toBe(true);
+    expect(isTeacherSsoRequired()).toBe(false);
+
+    process.env.CS201_REQUIRE_TEACHER_SSO = "1";
+    process.env.TEACHER_SSO_CLIENT_SECRET = "";
+
+    expect(isTeacherSsoRequired()).toBe(true);
+    expect(isTeacherSsoConfigured()).toBe(false);
+  });
+
+  it("start falls back to local login when SSO is not configured", async () => {
+    process.env.TEACHER_SSO_CLIENT_SECRET = "";
+
+    const response = await START(new NextRequest("http://portal.test/api/auth/teacher/start?next=/homework"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "http://portal.test/login?next=%2Fhomework&local=1&ssoError=teacher_sso_not_configured",
+    );
+  });
+
   it("callback validates state and creates portal plus teacher cookies", async () => {
     const issuedAt = Date.UTC(2026, 4, 1, 8);
     vi.useFakeTimers();
@@ -136,5 +162,35 @@ describe("teacher SSO", () => {
     });
 
     vi.useRealTimers();
+  });
+
+  it("status returns teacher login metadata without the access token", async () => {
+    const issuedAt = Date.now();
+    const portalToken = await createSessionToken("zw354", issuedAt, "teacher");
+    const teacherToken = await createTeacherSessionToken({
+      username: "zw354",
+      displayName: "Student Z",
+      accessToken: "secret-access-token",
+      expiresAt: issuedAt + 60_000,
+      issuedAt,
+    });
+    const response = await STATUS(
+      new NextRequest("http://portal.test/api/auth/teacher/status", {
+        headers: {
+          cookie: `${PORTAL_SESSION_COOKIE}=${portalToken}; ${TEACHER_SESSION_COOKIE}=${teacherToken}`,
+        },
+      }),
+    );
+    const payload = (await response.json()) as Record<string, unknown>;
+
+    expect(payload).toMatchObject({
+      ok: true,
+      configured: true,
+      authenticated: true,
+      authSource: "teacher",
+      username: "zw354",
+      displayName: "Student Z",
+    });
+    expect(JSON.stringify(payload)).not.toContain("secret-access-token");
   });
 });

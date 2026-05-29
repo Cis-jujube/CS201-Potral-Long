@@ -1,11 +1,17 @@
 import type { NextRequest } from "next/server";
 
+import {
+  getTeacherSsoBaseUrl,
+  getTeacherSsoClientId,
+  getTeacherSsoClientSecret,
+  isTeacherSsoConfigured,
+  isTeacherSsoRequired,
+} from "@/lib/auth/teacherSsoConfig";
+
 export const TEACHER_SESSION_COOKIE = "cs201_teacher_session";
 export const TEACHER_SSO_STATE_COOKIE = "cs201_teacher_sso_state";
 export const TEACHER_SSO_STATE_MAX_AGE_SECONDS = 10 * 60;
 
-const DEFAULT_TEACHER_SSO_BASE_URL = "http://repolab.colab.duke.edu:8005";
-const DEFAULT_TEACHER_SSO_CLIENT_ID = "cs201-portal";
 const DEV_TEACHER_ENCRYPTION_SECRET = "cs201-dev-teacher-session-secret";
 
 const encoder = new TextEncoder();
@@ -56,12 +62,12 @@ const randomState = () => {
   return base64UrlEncodeBytes(bytes);
 };
 
-export const getTeacherSsoBaseUrl = () =>
-  (process.env.TEACHER_SSO_BASE_URL || DEFAULT_TEACHER_SSO_BASE_URL).replace(/\/+$/, "");
-
-export const getTeacherSsoClientId = () => process.env.TEACHER_SSO_CLIENT_ID || DEFAULT_TEACHER_SSO_CLIENT_ID;
-
-const getTeacherSsoClientSecret = () => process.env.TEACHER_SSO_CLIENT_SECRET || "";
+export {
+  getTeacherSsoBaseUrl,
+  getTeacherSsoClientId,
+  isTeacherSsoConfigured,
+  isTeacherSsoRequired,
+};
 
 const getTeacherEncryptionSecret = () => {
   const secret = process.env.TEACHER_SESSION_ENCRYPTION_SECRET;

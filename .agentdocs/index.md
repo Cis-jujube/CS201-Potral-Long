@@ -8,7 +8,7 @@
 - Imported official CS201 course-site archive lives under `data/course-site/`; refresh it with `npm run import:course-site` using environment-only credentials.
 - Restricted course assets, including lecture/PPT slides, lab PDFs, imported raw course-site files, and the textbook PDF, must stay local/private and must not be committed or pushed to GitHub. `public/course-materials/` and `data/course-site/raw/` are intentionally ignored.
 - Class Notes are admin-managed local assets. Metadata lives in `data/admin-overrides/class-notes.json`, files live under `public/course-materials/class-notes/`, and student preview pages use `/resources/class-notes/[id]`.
-- Current Duke VCM deployment runs on `vcm-53362.vm.duke.edu` from `/opt/cs201-portal/app` via `cs201-portal.service` on port `3300`.
+- Current Duke VCM deployment runs on `vcm-53362.vm.duke.edu` via `cs201-portal.service` on port `3300`. Preserve legacy v1 at `/opt/cs201-portal/app`; new releases should live under `/opt/cs201-portal/releases` and be selected through `/opt/cs201-portal/current`.
 
 ## Frontend Docs
 
@@ -21,7 +21,8 @@
 
 ## Active Workflow Docs
 
-- [workflow/260525-restricted-test-account.md](./workflow/260525-restricted-test-account.md): Add a local-only restricted `test` account that can view static course resources without professor-site/BK/quiz/project sync access.
+- [workflow/260525-restricted-test-account.md](./workflow/260525-restricted-test-account.md): Maintain the local-only restricted `test` account; it can browse portal pages but cannot download course files or use write/teacher SSO APIs.
+- [workflow/260529-v2-versioned-deploy-security.md](./workflow/260529-v2-versioned-deploy-security.md): Publish v2 through a rollback-capable VCM release directory and record the security hardening pass.
 - [workflow/260525-vcm-deployment.md](./workflow/260525-vcm-deployment.md): Deploy the CS201 portal to the Duke Ubuntu VM, including remote runtime setup, file upload, service persistence, and public access validation.
 - [workflow/260522-display-sso-homework-sync.md](./workflow/260522-display-sso-homework-sync.md): Remove alternate Bento Box layout control, keep pure traditional Chinese quotes, and document professor-site SSO/Homework sync boundary.
 - [workflow/260522-home-quiz-navbar-calendar.md](./workflow/260522-home-quiz-navbar-calendar.md): Move Home header utilities/quote, surface live Quiz progress on Home, and align Quiz/Reflection due dates to Sunday.

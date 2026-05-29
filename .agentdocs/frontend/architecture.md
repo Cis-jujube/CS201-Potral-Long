@@ -21,11 +21,13 @@
 - `lib/home/homeFilters.ts` is the single pure selector for homepage-wide filtering.
 - `lib/progress/engine.ts` is the single week-progress entry point. v1 uses local task completion only and reserves external adapter config.
 - `lib/auth/session.ts` owns the local portal session token contract used by login/logout routes and route protection.
+- `next.config.ts` owns baseline browser hardening headers for all routes. Keep CSP out of this global header set unless the app also implements a Next-compatible nonce strategy for framework inline scripts.
 - `lib/practice/content.ts` adapts local homework, required reflections, and live Quiz payloads into the unified Homework page selector model.
 - `lib/reflections/*` owns server-side teacher-site questionnaire login, course-tree discovery, fallback data, and sanitized reflection payloads. Teacher-site credentials never reach client components.
 - `lib/bk-projects/*` owns server-side teacher-site BK project group, survey, and vote sync. It reuses the server-only teacher-site login pattern and never returns credentials to client components.
 - `lib/quiz/*` owns server-side Quiz login, HTML parsing, answer filtering, and submit result parsing. Quiz credentials are never passed to client components.
 - Quiz problem fetches create a server-only submit context and expose only a non-secret `submitContextId` to the client. Submit routes must prefer that cached context so answer letters match the exact shuffled teacher-site page the student saw.
+- Quiz detail exposes a manual `Refresh question` control, and every Quiz submit result triggers a live week refresh. This keeps prompts, answer-field ordering, CSRF tokens, form actions, and submit contexts aligned with the teacher site after both correct and failed attempts.
 
 ## Contracts
 
@@ -40,6 +42,8 @@
 - Public course PDFs are generated under `public/course-materials/`; do not point UI directly at OneDrive sibling folders.
 - Reflection templates live under `public/reflection-templates/`; the CS201 textbook lives under `public/course-materials/textbook/`.
 - Portal pages and public course materials are protected by the local login session. Credentials must come from `CS201_PORTAL_USERS` or the legacy pair `CS201_PORTAL_USERNAME` / `CS201_PORTAL_PASSWORD`, plus `CS201_PORTAL_SESSION_SECRET`; source code may only contain non-secret development fallbacks.
+- `CS201_REQUIRE_TEACHER_SSO=1` switches unauthenticated page access from `/login` to `/api/auth/teacher/start`; keep `/login?local=1` as the local/admin/failure fallback. Do not enable the switch until the teacher site exposes `/portal-sso/authorize/` and `/portal-sso/token/`.
+- `/api/auth/teacher/status` may expose SSO configuration and session metadata, but it must never return the teacher access token.
 - Week Navigation collapse state is stored through `CourseUiProvider` as `weekNavCollapsed`; collapsed mode keeps only CS201, current week, expand/logout/menu controls, and hides week buttons plus the daily quote.
 - Homework, AI Reflection, and BK Reflection due dates are recommended due items. AI/BK Reflection use Sunday `23:59` for each course week and appear in the calendar with recommended styling. Quiz due dates are required Sunday `23:59`; BK project presentation and exam due items remain required.
 - Homework page selector entries are ordered as local HW entries, AI/BK reflection entries, then Quiz. Reflections are generated from weekly task data; Quiz is loaded through `/api/quiz/week/[week]` and Home must reuse that same API instead of keeping a separate static Quiz source.

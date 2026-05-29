@@ -31,6 +31,9 @@ loadLocalEnv();
 
 process.env.CS201_ADMIN_USERS ??= process.env.E2E_PORTAL_USERNAME ?? "cs201";
 
+const e2ePort = process.env.E2E_PORT || "3000";
+const e2eBaseUrl = `http://localhost:${e2ePort}`;
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 90_000,
@@ -38,12 +41,12 @@ export default defineConfig({
   workers: 1,
   reporter: "list",
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL: e2eBaseUrl,
     trace: "on-first-retry",
   },
   webServer: {
-    command: "npm run dev -- --port 3000",
-    url: "http://localhost:3000",
+    command: `npm run dev -- --port ${e2ePort}`,
+    url: e2eBaseUrl,
     reuseExistingServer: true,
     timeout: 120_000,
   },

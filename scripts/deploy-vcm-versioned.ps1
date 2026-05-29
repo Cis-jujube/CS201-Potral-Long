@@ -1,0 +1,103 @@
+param(
+  [string]$HostName = "vcm-53362.vm.duke.edu",
+  [string]$RemoteUser = "vcm",
+  [string]$RemoteRoot = "/opt/cs201-portal",
+  [string]$SshKeyPath = "$env:USERPROFILE\.ssh\cs201_vcm_ed25519",
+  [string]$ReleaseName = "",
+  [switch]$SkipLocalValidation
+)
+
+$ErrorActionPreference = "Stop"
+
+$projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+if (-not $ReleaseName) {
+  $ReleaseName = "$timestamp-v2"
+}
+
+$archiveName = "cs201-portal-$ReleaseName.tar.gz"
+$archivePath = Join-Path ([System.IO.Path]::GetTempPath()) $archiveName
+$remoteArchive = "/tmp/$archiveName"
+$releaseDir = "$RemoteRoot/releases/$ReleaseName"
+$remote = "$RemoteUser@$HostName"
+$sshArgs = @()
+if ($SshKeyPath -and (Test-Path -LiteralPath $SshKeyPath)) {
+  $sshArgs = @("-i", $SshKeyPath)
+}
+
+function Assert-LastExitCode {
+  param([string]$Step)
+
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Step failed with exit code $LASTEXITCODE."
+  }
+}
+
+if (-not $SkipLocalValidation) {
+  Push-Location $projectRoot
+  try {
+    npm run lint
+    npm run test
+    npm run build
+  } finally {
+    Pop-Location
+  }
+}
+
+if (Test-Path $archivePath) {
+  Remove-Item -LiteralPath $archivePath -Force
+}
+
+Push-Location $projectRoot
+try {
+  $dirty = git status --porcelain
+  if ($dirty) {
+    throw "Commit or stash local changes before running this deployment script. It packages HEAD with git archive."
+  }
+
+  git archive --format=tar.gz --output=$archivePath HEAD
+  Assert-LastExitCode "Create deployment archive"
+} finally {
+  Pop-Location
+}
+
+& ssh @sshArgs $remote @"
+set -euo pipefail
+mkdir -p "$RemoteRoot/releases" "$RemoteRoot/shared"
+if [ ! -f "$RemoteRoot/shared/.env.local" ] && [ -f "$RemoteRoot/app/.env.local" ]; then
+  cp "$RemoteRoot/app/.env.local" "$RemoteRoot/shared/.env.local"
+fi
+rm -rf "$releaseDir"
+mkdir -p "$releaseDir"
+"@
+Assert-LastExitCode "Prepare remote release directory"
+
+& scp @sshArgs $archivePath "${remote}:$remoteArchive"
+Assert-LastExitCode "Upload deployment archive"
+
+& ssh @sshArgs $remote @"
+set -euo pipefail
+tar --no-same-owner --no-same-permissions -xzf "$remoteArchive" -C "$releaseDir"
+rm -f "$remoteArchive"
+ln -sfn "$RemoteRoot/shared/.env.local" "$releaseDir/.env.local"
+for runtime_path in public/course-materials public/reflection-templates data/admin-overrides; do
+  if [ -e "$RemoteRoot/app/$runtime_path" ] && [ ! -e "$releaseDir/$runtime_path" ]; then
+    mkdir -p "$(dirname "$releaseDir/$runtime_path")"
+    cp -a "$RemoteRoot/app/$runtime_path" "$releaseDir/$runtime_path"
+  fi
+done
+cd "$releaseDir"
+npm ci
+npm run build
+ln -sfn "$releaseDir" "$RemoteRoot/current"
+sudo mkdir -p /etc/systemd/system/cs201-portal.service.d
+printf '[Service]\nWorkingDirectory=%s\n' "$RemoteRoot/current" | sudo tee /etc/systemd/system/cs201-portal.service.d/versioned-release.conf >/dev/null
+sudo systemctl daemon-reload
+sudo systemctl restart cs201-portal.service
+systemctl is-active cs201-portal.service
+readlink -f "$RemoteRoot/current"
+curl -I http://127.0.0.1:3300/login
+"@
+Assert-LastExitCode "Activate remote release"
+
+Remove-Item -LiteralPath $archivePath -Force

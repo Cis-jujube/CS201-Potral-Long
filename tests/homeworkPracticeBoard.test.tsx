@@ -144,6 +144,109 @@ describe("HomeworkPracticeBoard", () => {
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
   });
 
+  it("refreshes the live quiz after a failed teacher-site submit", async () => {
+    const quiz: QuizWeekPayload = {
+      kind: "quiz",
+      id: "quiz-week-6",
+      week: 6,
+      title: "Week 6 Quiz",
+      sourceHref: "http://example.test/cs201/quiz/601/",
+      status: "open",
+      progressLabel: "0/24 passed",
+      problems: [
+        {
+          id: "quiz-problem-601",
+          problemId: "601",
+          week: 6,
+          label: "Problem01",
+          title: "Turing machine model",
+          sourceHref: "http://example.test/cs201/quiz/601/",
+          status: "open",
+          prompt: [{ type: "text", text: "Fill in the command sequence." }],
+          answerFields: [{ name: "0", label: "(0)", required: true }],
+          submitContextId: "context-601",
+        },
+      ],
+    };
+    const entries = buildPracticeEntriesForWeek(6, getHomeworksForWeek(6), MOCK_COURSE_OVERVIEW.tasks, {
+      state: "ready",
+      quiz,
+    });
+    const refresh = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          result: { status: "failed", message: "Try again.", passed: 0, total: 24, attemptsLeft: 2 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <HomeworkPracticeBoard
+        entries={entries}
+        questionProgressMap={{}}
+        onSetQuestionStatus={vi.fn()}
+        onQuizRefresh={refresh}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Quiz/ }));
+    fireEvent.change(screen.getByLabelText("(0)"), { target: { value: "A" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+  });
+
+  it("lets students manually refresh a live quiz question", () => {
+    const quiz: QuizWeekPayload = {
+      kind: "quiz",
+      id: "quiz-week-6",
+      week: 6,
+      title: "Week 6 Quiz",
+      sourceHref: "http://example.test/cs201/quiz/601/",
+      status: "open",
+      progressLabel: "0/24 passed",
+      problems: [
+        {
+          id: "quiz-problem-601",
+          problemId: "601",
+          week: 6,
+          label: "Problem01",
+          title: "Turing machine model",
+          sourceHref: "http://example.test/cs201/quiz/601/",
+          status: "open",
+          prompt: [{ type: "text", text: "Fill in the command sequence." }],
+          answerFields: [{ name: "0", label: "(0)", required: true }],
+          submitContextId: "context-601",
+        },
+      ],
+    };
+    const entries = buildPracticeEntriesForWeek(6, getHomeworksForWeek(6), MOCK_COURSE_OVERVIEW.tasks, {
+      state: "ready",
+      quiz,
+    });
+    const refresh = vi.fn();
+
+    render(
+      <HomeworkPracticeBoard
+        entries={entries}
+        questionProgressMap={{}}
+        onSetQuestionStatus={vi.fn()}
+        onQuizRefresh={refresh}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Quiz/ }));
+    fireEvent.change(screen.getByLabelText("(0)"), { target: { value: "A" } });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh question" }));
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("(0)")).toHaveValue("");
+  });
+
   it("renders reflection template downloads and submits through the teacher-site endpoint", async () => {
     const questionnaire = buildReflectionQuestionnaire({
       week: 7,

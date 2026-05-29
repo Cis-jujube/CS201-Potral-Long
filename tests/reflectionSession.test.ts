@@ -1,3 +1,5 @@
+import { NextRequest } from "next/server";
+
 import {
   collectBkProjectRefs,
   createReflectionAccessTokenSession,
@@ -6,6 +8,9 @@ import {
   submitReflectionQuestionnaire,
   type ReflectionSession,
 } from "@/lib/reflections/session";
+import { GET as GET_REFLECTION_WEEK } from "@/app/api/reflections/week/[week]/route";
+import { PORTAL_SESSION_COOKIE, createSessionToken } from "@/lib/auth/session";
+import { TEACHER_SESSION_COOKIE, createTeacherSessionToken } from "@/lib/auth/teacherSso";
 
 const jsonResponse = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), {
@@ -15,7 +20,10 @@ const jsonResponse = (body: unknown, init: ResponseInit = {}) =>
   });
 
 describe("reflection teacher-site session", () => {
+  const originalEnv = process.env;
+
   afterEach(() => {
+    process.env = originalEnv;
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -116,6 +124,55 @@ describe("reflection teacher-site session", () => {
       canSubmit: true,
     });
     expect(payload.questionnaires[1]).toMatchObject({ kind: "bk-reflection" });
+  });
+
+  it("route uses the teacher bearer token without BK user-map credentials", async () => {
+    const issuedAt = Date.now();
+    process.env = {
+      ...originalEnv,
+      CS201_PORTAL_SESSION_SECRET: "portal-session-secret",
+      TEACHER_SESSION_ENCRYPTION_SECRET: "teacher-session-secret",
+      CS201_BK_BASE_URL: "http://bk.test",
+      CS201_BK_USER_MAP: "",
+    };
+
+    const portalToken = await createSessionToken("student-account", issuedAt, "teacher");
+    const teacherToken = await createTeacherSessionToken({
+      username: "student-account",
+      accessToken: "teacher-access-token",
+      expiresAt: issuedAt + 60_000,
+      issuedAt,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ id: 17, username: "student-account" }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          courses: [{ name: "CS201", children: [{ name: "Week 1 BK", bkproject_spk: "bk1" }] }],
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ spk: "bk1", num_questionnaires: 1, voting_closed: false }))
+      .mockResolvedValueOnce(jsonResponse({ results: [{ spk: "submission-1", response_text: "teacher text" }] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET_REFLECTION_WEEK(
+      new NextRequest("http://portal.test/api/reflections/week/1", {
+        headers: {
+          cookie: `${PORTAL_SESSION_COOKIE}=${portalToken}; ${TEACHER_SESSION_COOKIE}=${teacherToken}`,
+        },
+      }),
+      { params: Promise.resolve({ week: "1" }) },
+    );
+    const payload = (await response.json()) as {
+      reflection: { syncStatus: string; questionnaires: Array<{ responseText: string }> };
+    };
+
+    expect(payload.reflection.syncStatus).toBe("synced");
+    expect(payload.reflection.questionnaires[0]?.responseText).toBe("teacher text");
+    fetchMock.mock.calls.forEach((call) => {
+      const headers = call[1]?.headers as Headers;
+      expect(headers.get("authorization")).toBe("Bearer teacher-access-token");
+    });
   });
 
   it("patches existing questionnaire submissions", async () => {
