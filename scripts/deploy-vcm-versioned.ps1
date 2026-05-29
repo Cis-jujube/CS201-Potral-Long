@@ -61,43 +61,40 @@ try {
   Pop-Location
 }
 
-& ssh @sshArgs $remote @"
-set -euo pipefail
-mkdir -p "$RemoteRoot/releases" "$RemoteRoot/shared"
-if [ ! -f "$RemoteRoot/shared/.env.local" ] && [ -f "$RemoteRoot/app/.env.local" ]; then
-  cp "$RemoteRoot/app/.env.local" "$RemoteRoot/shared/.env.local"
-fi
-rm -rf "$releaseDir"
-mkdir -p "$releaseDir"
-"@
+$prepareCommand = @(
+  "set -euo pipefail",
+  "mkdir -p '$RemoteRoot/releases' '$RemoteRoot/shared'",
+  "if [ ! -f '$RemoteRoot/shared/.env.local' ] && [ -f '$RemoteRoot/app/.env.local' ]; then cp '$RemoteRoot/app/.env.local' '$RemoteRoot/shared/.env.local'; fi",
+  "rm -rf '$releaseDir'",
+  "mkdir -p '$releaseDir'"
+) -join "; "
+& ssh @sshArgs $remote "bash" "-lc" $prepareCommand
 Assert-LastExitCode "Prepare remote release directory"
 
 & scp @sshArgs $archivePath "${remote}:$remoteArchive"
 Assert-LastExitCode "Upload deployment archive"
 
-& ssh @sshArgs $remote @"
-set -euo pipefail
-tar --no-same-owner --no-same-permissions -xzf "$remoteArchive" -C "$releaseDir"
-rm -f "$remoteArchive"
-ln -sfn "$RemoteRoot/shared/.env.local" "$releaseDir/.env.local"
-for runtime_path in public/course-materials public/reflection-templates data/admin-overrides; do
-  if [ -e "$RemoteRoot/app/$runtime_path" ] && [ ! -e "$releaseDir/$runtime_path" ]; then
-    mkdir -p "$(dirname "$releaseDir/$runtime_path")"
-    cp -a "$RemoteRoot/app/$runtime_path" "$releaseDir/$runtime_path"
-  fi
-done
-cd "$releaseDir"
-npm ci
-npm run build
-ln -sfn "$releaseDir" "$RemoteRoot/current"
-sudo mkdir -p /etc/systemd/system/cs201-portal.service.d
-printf '[Service]\nWorkingDirectory=%s\n' "$RemoteRoot/current" | sudo tee /etc/systemd/system/cs201-portal.service.d/versioned-release.conf >/dev/null
-sudo systemctl daemon-reload
-sudo systemctl restart cs201-portal.service
-systemctl is-active cs201-portal.service
-readlink -f "$RemoteRoot/current"
-curl -I http://127.0.0.1:3300/login
-"@
+$activateCommand = @(
+  "set -euo pipefail",
+  "tar --no-same-owner --no-same-permissions -xzf '$remoteArchive' -C '$releaseDir'",
+  "rm -f '$remoteArchive'",
+  "ln -sfn '$RemoteRoot/shared/.env.local' '$releaseDir/.env.local'",
+  "if [ -e '$RemoteRoot/app/public/course-materials' ] && [ ! -e '$releaseDir/public/course-materials' ]; then mkdir -p '$releaseDir/public'; cp -a '$RemoteRoot/app/public/course-materials' '$releaseDir/public/course-materials'; fi",
+  "if [ -e '$RemoteRoot/app/public/reflection-templates' ] && [ ! -e '$releaseDir/public/reflection-templates' ]; then mkdir -p '$releaseDir/public'; cp -a '$RemoteRoot/app/public/reflection-templates' '$releaseDir/public/reflection-templates'; fi",
+  "if [ -e '$RemoteRoot/app/data/admin-overrides' ] && [ ! -e '$releaseDir/data/admin-overrides' ]; then mkdir -p '$releaseDir/data'; cp -a '$RemoteRoot/app/data/admin-overrides' '$releaseDir/data/admin-overrides'; fi",
+  "cd '$releaseDir'",
+  "npm ci",
+  "npm run build",
+  "ln -sfn '$releaseDir' '$RemoteRoot/current'",
+  "sudo mkdir -p /etc/systemd/system/cs201-portal.service.d",
+  "printf '[Service]\nWorkingDirectory=$RemoteRoot/current\n' | sudo tee /etc/systemd/system/cs201-portal.service.d/versioned-release.conf >/dev/null",
+  "sudo systemctl daemon-reload",
+  "sudo systemctl restart cs201-portal.service",
+  "systemctl is-active cs201-portal.service",
+  "readlink -f '$RemoteRoot/current'",
+  "curl -I http://127.0.0.1:3300/login"
+) -join "; "
+& ssh @sshArgs $remote "bash" "-lc" $activateCommand
 Assert-LastExitCode "Activate remote release"
 
 Remove-Item -LiteralPath $archivePath -Force
