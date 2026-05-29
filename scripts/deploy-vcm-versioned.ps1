@@ -33,6 +33,12 @@ function Assert-LastExitCode {
   }
 }
 
+function ConvertTo-BashSingleQuoted {
+  param([string]$Value)
+
+  return "'" + $Value.Replace("'", "'\''") + "'"
+}
+
 if (-not $SkipLocalValidation) {
   Push-Location $projectRoot
   try {
@@ -68,7 +74,7 @@ $prepareCommand = @(
   "rm -rf '$releaseDir'",
   "mkdir -p '$releaseDir'"
 ) -join "; "
-& ssh @sshArgs $remote "bash" "-lc" $prepareCommand
+& ssh @sshArgs $remote ("bash -lc " + (ConvertTo-BashSingleQuoted $prepareCommand))
 Assert-LastExitCode "Prepare remote release directory"
 
 & scp @sshArgs $archivePath "${remote}:$remoteArchive"
@@ -92,9 +98,10 @@ $activateCommand = @(
   "sudo systemctl restart cs201-portal.service",
   "systemctl is-active cs201-portal.service",
   "readlink -f '$RemoteRoot/current'",
-  "curl -I http://127.0.0.1:3300/login"
+  "for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do curl -fsSI http://127.0.0.1:3300/login && break; sleep 1; done",
+  "curl -fsSI http://127.0.0.1:3300/login"
 ) -join "; "
-& ssh @sshArgs $remote "bash" "-lc" $activateCommand
+& ssh @sshArgs $remote ("bash -lc " + (ConvertTo-BashSingleQuoted $activateCommand))
 Assert-LastExitCode "Activate remote release"
 
 Remove-Item -LiteralPath $archivePath -Force
