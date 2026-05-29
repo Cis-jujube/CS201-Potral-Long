@@ -36,7 +36,7 @@
 - Install dependencies and run `npm run build` inside the new release before changing live traffic.
 - Switch live traffic by atomically updating `/opt/cs201-portal/current` to the new release and restarting `cs201-portal.service` with `WorkingDirectory=/opt/cs201-portal/current`.
 - Rollback means pointing `/opt/cs201-portal/current` back to the previous release or to `/opt/cs201-portal/app`, then restarting the service.
-- Use `scripts/deploy-vcm-versioned.ps1` from the project root once SSH authentication is available on the workstation.
+- Use `scripts/deploy-vcm-versioned.ps1` from the project root once SSH authentication is available on the workstation. The script requires a clean Git worktree because it packages `HEAD` with `git archive`.
 
 ## Validation Commands
 

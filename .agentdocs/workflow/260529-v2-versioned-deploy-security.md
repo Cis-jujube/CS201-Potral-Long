@@ -25,16 +25,19 @@
 - [x] Add route-level browser hardening headers.
 - [x] Validate lint, unit/integration tests, production build, and E2E locally.
 - [x] Add a repeatable versioned VCM deployment script.
-- [ ] Authenticate to the VCM over SSH.
-- [ ] Upload v2 into a separate release directory.
-- [ ] Switch `/opt/cs201-portal/current` to v2 and restart the service.
-- [ ] Validate remote health and record the active release.
+- [x] Authenticate to the VCM over SSH.
+- [x] Upload v2 into a separate release directory.
+- [x] Switch `/opt/cs201-portal/current` to v2 and restart the service.
+- [x] Validate remote health and record the active release.
 
-## Current Blocker
+## Deployment Review
 
 - `vcm-53362.vm.duke.edu` is reachable on ports `22` and `3300`.
-- SSH host key trust has been established locally.
-- SSH authentication currently fails with `Permission denied (publickey,password)` because this workstation has no private key in `~/.ssh` and no running `ssh-agent` identity.
+- SSH host key trust has been established locally, and a local deployment key was authorized for the `vcm` account.
+- GitHub `main` is the deployment source; `scripts/deploy-vcm-versioned.ps1` packages `HEAD` with `git archive`.
+- The VM keeps v1 at `/opt/cs201-portal/app` and serves v2 through `/opt/cs201-portal/current`.
+- Remote `npm ci`, `npm run build`, `systemctl restart cs201-portal.service`, local VM curl, and workstation HTTP validation passed.
+- Restricted `test` account remote validation passed: login `200`, `/projects` `200`, direct course file path `403`, write API `403`.
 
 ## Security Review
 

@@ -85,3 +85,4 @@
 - Updated the restricted account rule from resource-only browsing to broad read-only page browsing.
 - Restricted accounts can now open normal pages and read GET APIs, but direct course file/template paths return `403`.
 - Restricted accounts still cannot use non-GET write APIs or teacher SSO start/callback.
+- Remote v2 validation passed for `test`: login `200`, `/projects` `200`, `/course-materials/textbook/cs201-textbook.pdf` `403`, `/api/quiz/question/101/submit` POST `403`.
