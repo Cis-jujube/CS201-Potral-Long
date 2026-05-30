@@ -30,8 +30,16 @@ Publish the current CS201 Portal workspace as version 3:
 ## TODO
 
 - [x] Local validation passed.
-- [ ] GitHub push completed.
-- [ ] VCM v3 release directory created.
-- [ ] Remote build completed.
-- [ ] `cs201-portal.service` active after restart.
-- [ ] Public login URL responds.
+- [x] GitHub push completed.
+- [x] VCM v3 release directory created.
+- [x] Remote build completed.
+- [x] `cs201-portal.service` active after restart.
+- [x] Public login URL responds.
+
+## Validation Evidence
+
+- Local validation passed: `npm run lint`, `npm run test`, `npm run build`, and `E2E_PORT=3310 npm run test:e2e`.
+- Git commit published to GitHub: `7e72e62 Release CS201 portal v3`.
+- First VCM v3 release validation passed at `/opt/cs201-portal/releases/20260530-2321-v3`.
+- Remote service validation passed: `systemctl is-active cs201-portal.service` returned `active`.
+- Public workstation validation passed: `http://vcm-53362.vm.duke.edu:3300/login` returned HTTP `200`.
