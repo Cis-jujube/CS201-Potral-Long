@@ -63,6 +63,7 @@ describe("admin overrides", () => {
     });
 
     expect(overview.tasks.find((task) => task.id === "hw1")?.title).toBe("Edited HW1");
+    expect(overview.tasks.find((task) => task.id === "hw1")?.description).not.toBe("Edited description");
     expect(overview.deadlines.find((deadline) => deadline.id === "ddl-hw1")?.dueDate).toBe("2026-03-18T23:59:00");
     expect(overview.resources.some((resource) => resource.id === "res-1")).toBe(false);
     expect(overview.deadlines.find((deadline) => deadline.id === "ddl-bk-presentation-2")?.title).toBe("Edited Presentation");
@@ -73,6 +74,20 @@ describe("admin overrides", () => {
 
   it("rejects invalid override payloads", () => {
     expect(() => sanitizeCourseOverrides({ tasks: { hw1: { hidden: "yes" } } })).toThrow("tasks.hw1.hidden");
+    expect(() => sanitizeCourseOverrides({ tasks: { hw1: { dueDate: "not-a-date" } } })).toThrow("tasks.hw1.dueDate");
+    expect(() => sanitizeCourseOverrides({ deadlines: { "ddl-hw1": { dueDate: "not-a-date" } } })).toThrow("deadlines.ddl-hw1.dueDate");
+  });
+
+  it("drops stale description and detail override fields", () => {
+    const sanitized = sanitizeCourseOverrides({
+      tasks: { hw1: { title: "Edited HW1", description: "Old task override" } },
+      resources: { "res-1": { title: "Edited resource", description: "Old resource override" } },
+      deadlines: { "ddl-hw1": { title: "Edited deadline", detail: "Old deadline detail" } },
+    });
+
+    expect(sanitized.tasks.hw1).toEqual({ title: "Edited HW1" });
+    expect(sanitized.resources["res-1"]).toEqual({ title: "Edited resource" });
+    expect(sanitized.deadlines["ddl-hw1"]).toEqual({ title: "Edited deadline" });
   });
 
   it("requires admin access for API writes and supports save/reset", async () => {

@@ -32,7 +32,7 @@ export default async function AdminPage() {
           getModuleToneClass(PAGE_TONE_MAP.faq.intro),
         )}
         title="Admin"
-        description="Edit local CS201 portal content without writing to teacher-site reflection or voting systems."
+        description="Manage local CS201 dates and Class Notes without writing to teacher-site reflection or voting systems."
       />
       <AdminBoard />
     </div>

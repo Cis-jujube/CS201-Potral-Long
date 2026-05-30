@@ -34,7 +34,6 @@ const makeUploadForm = (file: File) => {
   const form = new FormData();
   form.set("week", "2");
   form.set("title", "Week 2 board notes");
-  form.set("description", "Uploaded after lecture.");
   form.set("originalFileName", file.name);
   form.set("file", file, file.name);
   return form;
@@ -87,6 +86,36 @@ describe("class notes APIs", () => {
     expect(payload.error).toMatch(/Only PDF/);
   });
 
+  it("rejects files whose MIME type does not match the extension", async () => {
+    const response = await UPLOAD(
+      await makeUploadRequest("teacher", makeUploadForm(new File(["bad"], "notes.pdf", { type: "text/plain" }))),
+    );
+    const payload = (await response.json()) as { ok: boolean; error: string };
+
+    expect(response.status).toBe(400);
+    expect(payload.ok).toBe(false);
+    expect(payload.error).toMatch(/does not match/);
+  });
+
+  it("accepts every allowed class note file type without descriptions", async () => {
+    const allowedFiles = [
+      new File(["%PDF-1.4"], "notes.pdf", { type: "application/pdf" }),
+      new File(["png"], "notes.png", { type: "image/png" }),
+      new File(["jpg"], "notes.jpg", { type: "image/jpeg" }),
+      new File(["jpeg"], "notes.jpeg", { type: "image/jpeg" }),
+      new File(["webp"], "notes.webp", { type: "image/webp" }),
+    ];
+
+    for (const file of allowedFiles) {
+      const response = await UPLOAD(await makeUploadRequest("teacher", makeUploadForm(file)));
+      expect(response.status).toBe(201);
+    }
+
+    const notes = await readClassNotes();
+    expect(notes).toHaveLength(allowedFiles.length);
+    expect(notes.every((note) => note.description === undefined)).toBe(true);
+  });
+
   it("uploads, lists, hides, and deletes class notes", async () => {
     const upload = await UPLOAD(
       await makeUploadRequest(
@@ -100,6 +129,7 @@ describe("class notes APIs", () => {
     expect(uploadPayload.ok).toBe(true);
     expect((await readFile(path.join(publicDir, uploadPayload.note.storedFileName))).byteLength).toBeGreaterThan(0);
     expect((await readClassNotes()).map((note) => note.title)).toEqual(["Week 2 board notes"]);
+    expect((await readClassNotes())[0].description).toBeUndefined();
 
     const adminList = await ADMIN_GET(await makeJsonRequest("http://localhost/api/admin/class-notes", "teacher", "GET"));
     expect(adminList.status).toBe(200);
@@ -115,11 +145,13 @@ describe("class notes APIs", () => {
       await makeJsonRequest(`http://localhost/api/admin/class-notes/${uploadPayload.note.id}`, "teacher", "PATCH", {
         title: "Hidden board notes",
         week: 2,
+        description: "Ignored admin description",
         hidden: true,
       }),
       { params: Promise.resolve({ id: uploadPayload.note.id }) },
     );
     expect(hidden.status).toBe(200);
+    expect((await readClassNotes())[0].description).toBeUndefined();
 
     const hiddenWeekList = await WEEK_GET(
       new NextRequest("http://localhost/api/class-notes/week/2"),

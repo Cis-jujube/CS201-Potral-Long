@@ -23,6 +23,7 @@
 - `lib/auth/session.ts` owns the local portal session token contract used by login/logout routes and route protection.
 - `next.config.ts` owns baseline browser hardening headers for all routes. Keep CSP out of this global header set unless the app also implements a Next-compatible nonce strategy for framework inline scripts.
 - `lib/practice/content.ts` adapts local homework, required reflections, and live Quiz payloads into the unified Homework page selector model.
+- `lib/homework/status.ts` owns server-side teacher-site JPA status sync for Homework. It resolves the current teacher profile, discovers the CS201 course id from `/api/user_courses_bk_jpa/{username}/`, fetches `/api/user_jpa_submissions/{username}/{course_id}/`, maps the latest `submit` row per JPA item to local homework manifest questions by `jpa_nid`, and exposes sanitized correct/incorrect/ungraded/not-started status through `/api/homework/status`.
 - `lib/reflections/*` owns server-side teacher-site questionnaire login, course-tree discovery, fallback data, and sanitized reflection payloads. Teacher-site credentials never reach client components.
 - `lib/bk-projects/*` owns server-side teacher-site BK project group, survey, and vote sync. It reuses the server-only teacher-site login pattern and never returns credentials to client components.
 - `lib/quiz/*` owns server-side Quiz login, HTML parsing, answer filtering, and submit result parsing. Quiz credentials are never passed to client components.
@@ -48,12 +49,14 @@
 - Homework, AI Reflection, and BK Reflection due dates are recommended due items. AI/BK Reflection use Sunday `23:59` for each course week and appear in the calendar with recommended styling. Quiz due dates are required Sunday `23:59`; BK project presentation and exam due items remain required.
 - Homework page selector entries are ordered as local HW entries, AI/BK reflection entries, then Quiz. Reflections are generated from weekly task data; Quiz is loaded through `/api/quiz/week/[week]` and Home must reuse that same API instead of keeping a separate static Quiz source.
 - Homework question, reflection, and Quiz detail bodies render through a document-style view inside `HomeworkPracticeBoard`: preserve structured sections, render prose with inline-code emphasis, render code blocks separately, and show submitted files as a checklist instead of a table.
+- `/api/homework/status` routes must validate the portal session, prefer the teacher SSO token when present, fall back to `CS201_BK_USER_MAP`, and return only per-question status metadata. Homework UI treats this teacher-site status as primary and keeps local `questionProgressMap` as a fallback/local note only.
 - `/api/quiz/*` routes must validate the portal session, map the portal username through `CS201_QUIZ_USER_MAP`, and return sanitized prompt/status data only. Do not return correct Quiz answers, even for closed upstream pages.
 - `CS201_QUIZ_BASE_URL` points at the upstream Quiz host. `CS201_QUIZ_USER_MAP` is server-only JSON keyed by portal username.
 - `/api/reflections/*` routes must validate the portal session, map the portal username through `CS201_BK_USER_MAP`, and return sanitized questionnaire metadata/submission text only. Manual Submit is the only client action that writes to the teacher site.
 - `/api/bk-projects/*` routes must validate the portal session, map the portal username through `CS201_BK_USER_MAP`, and return sanitized group/survey metadata only. Manual Submit vote is the only client action that writes survey submissions.
 - `CS201_BK_BASE_URL` points at the teacher-site backend. `CS201_BK_USER_MAP` is server-only JSON keyed by portal username.
-- `/admin` is a local portal editor protected by `CS201_ADMIN_USERS`. Admin v1 writes only local override JSON and never writes teacher-site BK/reflection/vote data.
+- `/admin` is a local portal editor protected by `CS201_ADMIN_USERS`. Admin writes only local override JSON and never writes teacher-site BK/reflection/vote data.
+- Admin-managed overrides are intentionally limited to title, due date/time, visibility, and due-display state. Do not produce or apply new `description` or `detail` overrides from Admin UI/API payloads; existing base course descriptions remain source data for student pages.
 - LocalStorage-backed UI state must use the provider's hydration-safe external-store pattern: server and initial hydration render the default snapshot, then the client reads persisted values. Do not read `window.localStorage` inside `useState` initializers for rendered state.
 
 ## Testing Rules
@@ -65,4 +68,5 @@
 - Lecture/Lab material changes require manifest/content tests plus Resources tab and preview-route e2e coverage.
 - Auth, Homework manifest, and calendar due-kind changes require unit/component tests plus Playwright coverage for login redirects, Homework detail rendering, and calendar hover/focus detail.
 - Quiz integration changes require parser fixture tests for assignment/problem/submit pages, plus component/e2e coverage proving answers are not rendered.
+- Homework JPA status integration changes require parser/session tests for course-id resolution and submission mapping, component coverage for teacher-site status precedence, and Playwright coverage for rendered Homework status.
 - Reflection integration changes require server-client mocked fetch tests, component coverage for templates and disabled fallback, and Playwright coverage for manual submit UI without real teacher-site writes.

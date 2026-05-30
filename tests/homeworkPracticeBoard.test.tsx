@@ -30,6 +30,151 @@ describe("HomeworkPracticeBoard", () => {
     expect(screen.getByText("EuclideanDistance.java")).toBeInTheDocument();
   });
 
+  it("uses teacher-site JPA status as the primary homework progress source", () => {
+    const entries = buildPracticeEntriesForWeek(1, getHomeworksForWeek(1), MOCK_COURSE_OVERVIEW.tasks, {
+      state: "unconfigured",
+      error: "Quiz account not configured.",
+    });
+    const hw1 = entries.find((entry) => entry.id === "hw1")!;
+    const question = hw1.questions[0];
+
+    render(
+      <HomeworkPracticeBoard
+        entries={entries}
+        questionProgressMap={{ [question.id]: "not-started" }}
+        onSetQuestionStatus={vi.fn()}
+        homeworkStatusSource={{
+          state: "ready",
+          refresh: vi.fn(),
+          status: {
+            kind: "homework-jpa-status",
+            syncStatus: "synced",
+            sourceHref: "http://teacher.test/student.html",
+            generatedAt: "2026-05-30T00:00:00.000Z",
+            username: "student1",
+            courseId: "CS201-S4-SP-2026",
+            questionStatuses: {
+              [question.id]: {
+                questionId: question.id,
+                homeworkId: "hw1",
+                homeworkTitle: "HW1",
+                questionTitle: question.title,
+                status: "correct",
+                source: "teacher-site",
+                jpaNid: "E-1.2.18-EuclideanDistance",
+                jpaSpk: "JPA0000049",
+                grade: 1,
+                lastUpdated: "2026-05-01T10:00:00",
+              },
+            },
+            homeworkStatuses: {
+              hw1: {
+                homeworkId: "hw1",
+                title: "HW1",
+                correct: 1,
+                incorrect: 0,
+                ungraded: 0,
+                notStarted: hw1.questions.length - 1,
+                total: hw1.questions.length,
+                isComplete: false,
+              },
+            },
+          },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^HW1/ }));
+
+    expect(screen.getByText("Teacher-site JPA status synced from CS201-S4-SP-2026.")).toBeInTheDocument();
+    expect(screen.getAllByText("Teacher site: Correct")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("Grade 1")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("1/6 correct")[0]).toBeInTheDocument();
+  });
+
+  it("renders incorrect, ungraded, and not-started teacher-site homework states distinctly", () => {
+    const entries = buildPracticeEntriesForWeek(1, getHomeworksForWeek(1), MOCK_COURSE_OVERVIEW.tasks, {
+      state: "unconfigured",
+      error: "Quiz account not configured.",
+    });
+    const hw1 = entries.find((entry) => entry.id === "hw1")!;
+    const [firstQuestion, secondQuestion, thirdQuestion] = hw1.questions;
+
+    render(
+      <HomeworkPracticeBoard
+        entries={entries}
+        questionProgressMap={{
+          [firstQuestion.id]: "correct",
+          [secondQuestion.id]: "correct",
+        }}
+        onSetQuestionStatus={vi.fn()}
+        homeworkStatusSource={{
+          state: "ready",
+          refresh: vi.fn(),
+          status: {
+            kind: "homework-jpa-status",
+            syncStatus: "synced",
+            sourceHref: "http://teacher.test/student.html",
+            generatedAt: "2026-05-30T00:00:00.000Z",
+            username: "student1",
+            courseId: "CS201-S4-SP-2026",
+            questionStatuses: {
+              [firstQuestion.id]: {
+                questionId: firstQuestion.id,
+                homeworkId: "hw1",
+                homeworkTitle: "HW1",
+                questionTitle: firstQuestion.title,
+                status: "incorrect",
+                source: "teacher-site",
+                grade: 0,
+                lastUpdated: "2026-05-02T10:00:00",
+              },
+              [secondQuestion.id]: {
+                questionId: secondQuestion.id,
+                homeworkId: "hw1",
+                homeworkTitle: "HW1",
+                questionTitle: secondQuestion.title,
+                status: "ungraded",
+                source: "teacher-site",
+                lastUpdated: "2026-05-02T11:00:00",
+              },
+              [thirdQuestion.id]: {
+                questionId: thirdQuestion.id,
+                homeworkId: "hw1",
+                homeworkTitle: "HW1",
+                questionTitle: thirdQuestion.title,
+                status: "not-started",
+                source: "teacher-site",
+              },
+            },
+            homeworkStatuses: {
+              hw1: {
+                homeworkId: "hw1",
+                title: "HW1",
+                correct: 0,
+                incorrect: 1,
+                ungraded: 1,
+                notStarted: hw1.questions.length - 2,
+                total: hw1.questions.length,
+                isComplete: false,
+              },
+            },
+          },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^HW1/ }));
+
+    expect(screen.getAllByText("Teacher site: Incorrect")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("Grade 0")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("0/6 correct · 1 wrong · 1 ungraded")[0]).toBeInTheDocument();
+    expect(screen.getByText("4 not started")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: secondQuestion.label || secondQuestion.title }));
+    expect(screen.getAllByText("Teacher site: Ungraded")[0]).toBeInTheDocument();
+  });
+
   it("shows reflections and quiz in the same selector without rendering quiz answers", () => {
     const quiz: QuizWeekPayload = {
       kind: "quiz",

@@ -3,6 +3,7 @@
 import { HomeworkPracticeBoard } from "@/components/pages/HomeworkPracticeBoard";
 import { StatePanel } from "@/components/ui/StatePanel";
 import { useCourseOverview } from "@/hooks/useCourseOverview";
+import { useHomeworkStatusSync } from "@/hooks/useHomeworkStatusSync";
 import { useReflectionSync } from "@/hooks/useReflectionSync";
 import { useWeeklyQuiz } from "@/hooks/useWeeklyQuiz";
 import { PAGE_TONE_MAP, getModuleToneClass } from "@/lib/config/moduleTones";
@@ -16,6 +17,7 @@ export default function HomeworkPage() {
   const { selectedWeek, questionProgressMap, setQuestionProgressStatus } = useCourseUi();
   const quizSource = useWeeklyQuiz(selectedWeek);
   const reflectionSource = useReflectionSync(selectedWeek);
+  const homeworkStatusSource = useHomeworkStatusSync();
 
   if (loading) {
     return <StatePanel type="loading" title="Loading homework..." message="Syncing weekly task board." />;
@@ -56,6 +58,7 @@ export default function HomeworkPage() {
           questionProgressMap={questionProgressMap}
           onSetQuestionStatus={setQuestionProgressStatus}
           onQuizRefresh={quizSource.refresh}
+          homeworkStatusSource={homeworkStatusSource}
         />
       </section>
     </div>

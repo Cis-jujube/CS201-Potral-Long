@@ -28,7 +28,6 @@ interface CreateClassNoteInput {
 interface UpdateClassNoteInput {
   week?: WeekNumber;
   title?: string;
-  description?: string;
   hidden?: boolean;
 }
 
@@ -231,7 +230,6 @@ export const updateClassNote = async (
     ...current,
     week: patch.week ?? current.week,
     title: patch.title === undefined ? current.title : sanitizeTitle(patch.title),
-    description: patch.description === undefined ? current.description : sanitizeDescription(patch.description),
     hidden: patch.hidden ?? current.hidden,
     updatedAt: new Date().toISOString(),
     updatedBy,
@@ -271,7 +269,6 @@ export const parseClassNotePatch = (value: unknown): UpdateClassNoteInput => {
   return {
     week: value.week === undefined ? undefined : parseClassNoteWeek(value.week),
     title: value.title === undefined ? undefined : sanitizeTitle(value.title),
-    description: value.description === undefined ? undefined : sanitizeDescription(value.description),
     hidden: value.hidden === undefined ? undefined : toBoolean(value.hidden),
   };
 };

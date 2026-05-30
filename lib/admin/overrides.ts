@@ -5,7 +5,6 @@ import type { CourseOverview, DeadlineItem, ResourceItem, TaskItem } from "@/lib
 
 export interface AdminTaskOverride {
   title?: string;
-  description?: string;
   dueDate?: string;
   hidden?: boolean;
   showDue?: boolean;
@@ -13,14 +12,12 @@ export interface AdminTaskOverride {
 
 export interface AdminDeadlineOverride {
   title?: string;
-  detail?: string;
   dueDate?: string;
   hidden?: boolean;
 }
 
 export interface AdminResourceOverride {
   title?: string;
-  description?: string;
   href?: string;
   hidden?: boolean;
 }
@@ -70,6 +67,19 @@ const optionalString = (value: unknown, label: string) => {
   return value;
 };
 
+const optionalDueDate = (value: unknown, label: string) => {
+  const next = optionalString(value, label);
+  if (next === undefined) {
+    return undefined;
+  }
+
+  if (Number.isNaN(Date.parse(next))) {
+    throw new Error(`${label} must be a valid date.`);
+  }
+
+  return next;
+};
+
 const optionalBoolean = (value: unknown, label: string) => {
   if (value === undefined) {
     return undefined;
@@ -89,8 +99,7 @@ const sanitizeTaskOverride = (value: unknown, label: string): AdminTaskOverride 
 
   return {
     title: optionalString(value.title, `${label}.title`),
-    description: optionalString(value.description, `${label}.description`),
-    dueDate: optionalString(value.dueDate, `${label}.dueDate`),
+    dueDate: optionalDueDate(value.dueDate, `${label}.dueDate`),
     hidden: optionalBoolean(value.hidden, `${label}.hidden`),
     showDue: optionalBoolean(value.showDue, `${label}.showDue`),
   };
@@ -103,8 +112,7 @@ const sanitizeDeadlineOverride = (value: unknown, label: string): AdminDeadlineO
 
   return {
     title: optionalString(value.title, `${label}.title`),
-    detail: optionalString(value.detail, `${label}.detail`),
-    dueDate: optionalString(value.dueDate, `${label}.dueDate`),
+    dueDate: optionalDueDate(value.dueDate, `${label}.dueDate`),
     hidden: optionalBoolean(value.hidden, `${label}.hidden`),
   };
 };
@@ -116,7 +124,6 @@ const sanitizeResourceOverride = (value: unknown, label: string): AdminResourceO
 
   return {
     title: optionalString(value.title, `${label}.title`),
-    description: optionalString(value.description, `${label}.description`),
     href: optionalString(value.href, `${label}.href`),
     hidden: optionalBoolean(value.hidden, `${label}.hidden`),
   };
@@ -201,7 +208,6 @@ const applyTaskOverride = (task: TaskItem, overrides: CourseAdminOverrides): Tas
   return {
     ...task,
     title: override?.title ?? task.title,
-    description: override?.description ?? task.description,
     dueDate: override?.dueDate ?? task.dueDate,
     showDue: override?.showDue ?? task.showDue,
   };
@@ -240,7 +246,6 @@ const applyDeadlineOverride = (
     ...syncedDeadline,
     title: override?.title ?? syncedDeadline.title,
     dueDate: override?.dueDate ?? syncedDeadline.dueDate,
-    detail: override?.detail ?? syncedDeadline.detail,
   };
 };
 
@@ -256,7 +261,6 @@ const applyResourceOverride = (
   return {
     ...resource,
     title: override?.title ?? resource.title,
-    description: override?.description ?? resource.description,
     href: override?.href ?? resource.href,
   };
 };

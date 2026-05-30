@@ -47,6 +47,15 @@ const basePayload = {
       dueKind: "recommended",
       detail: "HW1 recommended date.",
     },
+    {
+      id: "ddl-exam-final",
+      title: "Final Exam",
+      type: "exam",
+      dueDate: "2026-05-02T09:00:00",
+      week: 1,
+      dueKind: "required",
+      detail: "Comprehensive final exam.",
+    },
   ],
   resources: [
     {
@@ -97,6 +106,22 @@ const classNotes = [
   },
 ];
 
+const makeUploadNote = (title: string, originalFileName: string) => ({
+  id: `class-note-${title.toLowerCase().replace(/\s+/g, "-")}`,
+  week: 1,
+  title,
+  originalFileName,
+  storedFileName: originalFileName,
+  mimeType: originalFileName.endsWith(".png") ? "image/png" : "application/pdf",
+  size: 12,
+  fileType: originalFileName.endsWith(".png") ? "image" : "pdf",
+  publicHref: `/course-materials/class-notes/${originalFileName}`,
+  previewHref: `/resources/class-notes/${title}`,
+  hidden: false,
+  createdAt: "2026-04-30T00:00:00.000Z",
+  createdBy: "test",
+});
+
 describe("AdminBoard", () => {
   beforeEach(() => {
     vi.stubGlobal(
@@ -115,6 +140,19 @@ describe("AdminBoard", () => {
               },
             }),
             { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+
+        if (url === "/api/admin/class-notes/upload") {
+          const form = init?.body as FormData;
+          const title = String(form.get("title"));
+          const originalFileName = String(form.get("originalFileName"));
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              note: makeUploadNote(title, originalFileName),
+            }),
+            { status: 201, headers: { "content-type": "application/json" } },
           );
         }
 
@@ -153,28 +191,54 @@ describe("AdminBoard", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows publishing status chips, dirty state, filters class notes, and previews visible content only", async () => {
+  it("renders the date workbench, edits dates, omits description fields, and previews visible content only", async () => {
     const user = userEvent.setup();
     render(<AdminBoard />);
 
-    expect(await screen.findByText("Local content publishing workbench")).toBeInTheDocument();
-    expect(screen.getAllByText("Student-visible").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Saved locally").length).toBeGreaterThan(0);
+    expect(await screen.findByText("Professor date and file controls")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Weekly schedule table" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Final Exam title")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Description")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Detail")).not.toBeInTheDocument();
 
-    const preview = screen.getByRole("complementary", { name: "Preview as student" });
+    const hwTitle = screen.getByLabelText("HW1 title");
+    const hwTime = screen.getByLabelText("HW1 time");
+    await user.clear(hwTitle);
+    await user.type(hwTitle, "Edited HW1");
+    await user.clear(hwTime);
+    await user.type(hwTime, "18:30");
+    expect(screen.getAllByText("Unsaved").length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Saved local portal overrides.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    const preview = screen.getByRole("region", { name: "Preview as student" });
     expect(within(preview).getByText("Visible class note")).toBeInTheDocument();
     expect(within(preview).queryByText("Hidden class note")).not.toBeInTheDocument();
+  });
 
-    await user.clear(screen.getAllByLabelText("Title")[0]);
-    await user.type(screen.getAllByLabelText("Title")[0], "Edited HW1");
-    expect(screen.getAllByText("Unsaved changes").length).toBeGreaterThan(0);
+  it("queues multiple class note uploads, rejects invalid files, and adds uploaded notes", async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    render(<AdminBoard />);
 
-    await user.click(screen.getAllByRole("button", { name: "Save" })[0]);
-    expect(await screen.findByText("Saved local portal overrides.")).toBeInTheDocument();
-    expect(screen.getAllByText("Saved locally").length).toBeGreaterThan(0);
+    await screen.findByText("Professor date and file controls");
+    await user.click(screen.getByRole("button", { name: "Files" }));
 
-    await user.selectOptions(screen.getByLabelText("Visibility"), "hidden");
-    expect(screen.getByText("Showing 1 of 2 Week 1 note(s)")).toBeInTheDocument();
-    expect(screen.getByText("Hidden class note")).toBeInTheDocument();
+    await user.upload(screen.getByLabelText("Class note files"), [
+      new File(["%PDF-1.4"], "week-one-board.pdf", { type: "application/pdf" }),
+      new File(["PNG"], "diagram.png", { type: "image/png" }),
+      new File(["bad"], "draft.pdf", { type: "text/plain" }),
+    ]);
+
+    expect(screen.getByDisplayValue("week one board")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("diagram")).toBeInTheDocument();
+    expect(screen.getByText("Invalid")).toBeInTheDocument();
+    expect(screen.getByText("File type does not match the allowed extension.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Upload queued" }));
+    expect((await screen.findAllByText("Uploaded")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("week one board")).toBeInTheDocument();
+    expect(await screen.findByText("diagram")).toBeInTheDocument();
   });
 });

@@ -21,6 +21,9 @@
 
 ## Active Workflow Docs
 
+- [workflow/260530-homework-jpa-status-sync.md](./workflow/260530-homework-jpa-status-sync.md): Sync real per-user JPA homework completion from the teacher site into `/homework`.
+- [workflow/260530-admin-workbench-optimization.md](./workflow/260530-admin-workbench-optimization.md): Optimize `/admin` into a professor-focused date and Class Notes workbench with no description/detail editing.
+- [workflow/260530-v3-release.md](./workflow/260530-v3-release.md): Publish the current portal workspace as version 3 to GitHub and the Duke VCM versioned release path.
 - [workflow/260525-restricted-test-account.md](./workflow/260525-restricted-test-account.md): Maintain the local-only restricted `test` account; it can browse portal pages but cannot download course files or use write/teacher SSO APIs.
 - [workflow/260529-v2-versioned-deploy-security.md](./workflow/260529-v2-versioned-deploy-security.md): Publish v2 through a rollback-capable VCM release directory and record the security hardening pass.
 - [workflow/260525-vcm-deployment.md](./workflow/260525-vcm-deployment.md): Deploy the CS201 portal to the Duke Ubuntu VM, including remote runtime setup, file upload, service persistence, and public access validation.

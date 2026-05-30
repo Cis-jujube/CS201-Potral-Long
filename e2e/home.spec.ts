@@ -2,10 +2,17 @@ import { expect, type Page, test } from "@playwright/test";
 
 const login = async (page: Page) => {
   await page.goto("/login?local=1");
+  await page.waitForLoadState("networkidle");
   await page.getByLabel("Username").fill(process.env.E2E_PORTAL_USERNAME ?? "cs201");
   await page.getByLabel("Password").fill(process.env.E2E_PORTAL_PASSWORD ?? "cs201");
   await page.getByRole("button", { name: "Login" }).click();
   await expect(page).toHaveURL(/\/$/);
+  await page.waitForLoadState("networkidle");
+};
+
+const gotoReady = async (page: Page, path: string) => {
+  await page.goto(path);
+  await page.waitForLoadState("networkidle");
 };
 
 const requiresTeacherSso = ["1", "true", "yes", "on"].includes(
@@ -37,7 +44,7 @@ test("unauthenticated access uses the configured login flow", async ({ page }) =
 });
 
 test("week selection remains functional after reload", async ({ page }) => {
-  await page.goto("/");
+  await gotoReady(page, "/");
   await page.getByRole("button", { name: "Week 3" }).click();
   await expect(page.getByRole("heading", { name: "Week 3 Learning Map" })).toBeVisible();
   await page.reload();
@@ -46,7 +53,7 @@ test("week selection remains functional after reload", async ({ page }) => {
 });
 
 test("collapsed week navigation persists after reload", async ({ page }) => {
-  await page.goto("/");
+  await gotoReady(page, "/");
   await page.getByRole("button", { name: "Collapse week navigation" }).click();
   await expect(page.getByRole("heading", { name: "Week 1", exact: true })).toBeVisible();
   await page.reload();
@@ -56,7 +63,7 @@ test("collapsed week navigation persists after reload", async ({ page }) => {
 
 test("display preferences keep layout fixed and toggle theme", async ({ page }) => {
   await page.setViewportSize({ width: 1900, height: 960 });
-  await page.goto("/");
+  await gotoReady(page, "/");
   await expect(page.getByRole("button", { name: "Switch to Bento Box Grid" })).toHaveCount(0);
   await page.getByRole("button", { name: "Switch to dark theme" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
@@ -64,7 +71,7 @@ test("display preferences keep layout fixed and toggle theme", async ({ page }) 
 
 test("mobile drawer navigation opens without planner link", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await gotoReady(page, "/");
   await page.getByRole("button", { name: "Toggle menu" }).click();
   await expect(page.getByRole("navigation", { name: "Mobile navigation" }).getByRole("link", { name: "Planner" })).toHaveCount(0);
   await expect(page.getByRole("navigation", { name: "Mobile navigation" }).getByRole("link", { name: "Course Site" })).toHaveCount(0);
@@ -74,7 +81,7 @@ test("mobile drawer navigation opens without planner link", async ({ page }) => 
 });
 
 test("home no longer shows quick access/recommendation and includes task calendar", async ({ page }) => {
-  await page.goto("/");
+  await gotoReady(page, "/");
   await expect(page.getByRole("heading", { name: "Week 1 Lecture and Lab Resources" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Week 1 Learning Map" })).toBeVisible();
   await expect(page.getByText("Lectures")).toBeVisible();
@@ -98,7 +105,7 @@ test("home no longer shows quick access/recommendation and includes task calenda
 });
 
 test("sag platform toggle shows concise setup checks", async ({ page }) => {
-  await page.goto("/sag");
+  await gotoReady(page, "/sag");
   await expect(page.getByRole("heading", { name: "Instruction for Setup" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Setup Checks" })).toBeVisible();
   await expect(page.getByText("choco install make python temurin21 -y")).toBeVisible();
@@ -108,6 +115,49 @@ test("sag platform toggle shows concise setup checks", async ({ page }) => {
 });
 
 test("homework shows new homework-question-progress flow", async ({ page }) => {
+  const euclideanDistanceId = "courses-proxy-cs201-jpax-HW1-E-1-2-18-EuclideanDistance-README-raw-html";
+  await page.route("**/api/homework/status", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        status: {
+          kind: "homework-jpa-status",
+          syncStatus: "synced",
+          sourceHref: "http://10.200.20.79:81/student.html",
+          generatedAt: "2026-05-30T00:00:00.000Z",
+          username: "student1",
+          courseId: "CS201-S4-SP-2026",
+          questionStatuses: {
+            [euclideanDistanceId]: {
+              questionId: euclideanDistanceId,
+              homeworkId: "hw1",
+              homeworkTitle: "HW1",
+              questionTitle: "Exercise 1.2.18 EuclideanDistance",
+              status: "correct",
+              source: "teacher-site",
+              jpaNid: "E-1.2.18-EuclideanDistance",
+              jpaSpk: "JPA0000049",
+              grade: 1,
+              lastUpdated: "2026-05-01T10:00:00",
+            },
+          },
+          homeworkStatuses: {
+            hw1: {
+              homeworkId: "hw1",
+              title: "HW1",
+              correct: 1,
+              incorrect: 0,
+              notStarted: 5,
+              total: 6,
+              isComplete: false,
+            },
+          },
+        },
+      }),
+    });
+  });
   await page.route("**/api/reflections/week/1", async (route) => {
     await route.fulfill({
       status: 200,
@@ -223,12 +273,15 @@ test("homework shows new homework-question-progress flow", async ({ page }) => {
     });
   });
 
-  await page.goto("/homework");
+  await gotoReady(page, "/homework");
   await expect(page.getByText("Homework Selector")).toBeVisible();
   await expect(page.getByText("Question Selector")).toBeVisible();
   await expect(page.getByText("Question Progress")).toBeVisible();
   await page.getByRole("button", { name: "HW1" }).click();
   await expect(page.getByRole("heading", { name: "Exercise 1.2.18 EuclideanDistance" })).toBeVisible();
+  await expect(page.getByText("Teacher-site JPA status synced from CS201-S4-SP-2026.")).toBeVisible();
+  await expect(page.getByText("Teacher site: Correct").first()).toBeVisible();
+  await expect(page.getByText("Grade 1").first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Program description" })).toBeVisible();
   await expect(page.getByText("EuclideanDistance.java")).toBeVisible();
 
@@ -257,9 +310,9 @@ test("weekly planner route redirects to home", async ({ page }) => {
 });
 
 test("resources exposes lecture and lab material previews", async ({ page }) => {
-  await page.goto("/");
+  await gotoReady(page, "/");
   await page.getByRole("button", { name: "Week 3" }).click();
-  await page.goto("/resources");
+  await gotoReady(page, "/resources");
   await expect(page.getByRole("button", { name: "Lecture" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Lab" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Class Notes" })).toBeVisible();
@@ -304,7 +357,7 @@ test("resources exposes lecture and lab material previews", async ({ page }) => 
 });
 
 test("exams shows the optimized session grading policy", async ({ page }) => {
-  await page.goto("/exams");
+  await gotoReady(page, "/exams");
   await expect(page.getByText("Session Exam Grading Policy").first()).toBeVisible();
   await expect(page.getByText("Category I: graded assignments")).toBeVisible();
   await expect(page.getByText("Category II: AI questionnaires")).toBeVisible();
@@ -410,7 +463,7 @@ test("projects shows own team and explicit BK vote submit", async ({ page }) => 
     });
   });
 
-  await page.goto("/projects");
+  await gotoReady(page, "/projects");
   await expect(page.getByText("Local Project Overview")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Locked until teacher-site sync is configured" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Submit vote locked" })).toBeDisabled();
@@ -549,19 +602,33 @@ test("admin page edits local portal overrides without teacher-site writes", asyn
     });
   });
 
-  await page.goto("/admin");
+  await gotoReady(page, "/admin");
   await expect(page.getByRole("heading", { name: "Admin", exact: true })).toBeVisible();
-  await expect(page.getByText("Local content publishing workbench")).toBeVisible();
-  await expect(page.getByText("Student-visible").first()).toBeVisible();
+  await expect(page.getByText("Professor date and file controls")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Weekly schedule table" })).toBeVisible();
   await expect(page.getByText("Saved locally").first()).toBeVisible();
-  await expect(page.getByText("AI Reflection uses recommended Sunday due styling, not required due styling.")).toBeVisible();
-  await expect(page.getByText("Files / Class Notes")).toBeVisible();
-  await page.getByLabel("Title").first().fill("Edited HW1");
-  await expect(page.getByText("Unsaved changes").first()).toBeVisible();
+  await expect(page.getByLabel("Description")).toHaveCount(0);
+  await expect(page.getByLabel("Detail")).toHaveCount(0);
+  await page.getByLabel("HW1 title").fill("Edited HW1");
+  await page.getByLabel("Edited HW1 time").fill("18:30");
+  await expect(page.getByText("Unsaved").first()).toBeVisible();
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Saved local portal overrides.")).toBeVisible();
   await page.getByRole("button", { name: "Reset" }).click();
   await expect(page.getByText("Reset local portal overrides.")).toBeVisible();
+  await page.getByRole("button", { name: "Files" }).click();
+  await expect(page.getByRole("heading", { name: "Bulk Class Notes upload" })).toBeVisible();
+  await page.getByLabel("Class note files").setInputFiles([
+    { name: "e2e-note.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4") },
+    { name: "draft.txt", mimeType: "text/plain", buffer: Buffer.from("bad") },
+  ]);
+  await expect(page.getByLabel("e2e-note.pdf title")).toHaveValue("e2e note");
+  await expect(page.getByText("Invalid")).toBeVisible();
+  await page.getByRole("button", { name: "Upload queued" }).click();
+  await expect(page.getByText("Uploaded").first()).toBeVisible();
+  await expect(page.getByText("E2E class note")).toBeVisible();
+  await page.getByRole("button", { name: "Preview" }).click();
+  await expect(page.getByRole("region", { name: "Preview as student" })).toContainText("E2E class note");
 });
 
 test("course site page is removed", async ({ page }) => {

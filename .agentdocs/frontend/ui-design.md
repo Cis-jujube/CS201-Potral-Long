@@ -20,9 +20,11 @@
 ## Admin Publishing Workbench
 
 - Admin edits are explicit-save local portal changes. Do not imply teacher-site publishing or automatic student sync before Save.
+- Admin should behave like a dense professor workbench: status strip, selected-week scope, segmented `Dates` / `Files` / `Preview` sections, sticky save/reset actions, compact rows, and thin bordered surfaces.
+- Date editing is weekly and table-driven. Editable fields are title, date, time, visibility, and due display only; do not add description/detail editing back to Admin.
 - Editable rows should expose derived status chips: `Student-visible` or `Hidden`, plus `Unsaved changes` or `Saved locally`.
 - Preview as student must show only content that is not hidden for the selected week, including class notes.
-- Class Notes management should remain searchable and filterable by visibility once uploads become numerous.
+- Class Notes management supports multi-file PDF/image upload queues, auto-generated titles from file names, week assignment, visibility toggles, preview links, and delete. It should remain searchable and filterable by visibility once uploads become numerous.
 
 ## Responsive Rules
 

@@ -31,7 +31,6 @@ export async function POST(request: NextRequest) {
     const note = await createClassNote({
       week: parseClassNoteWeek(form.get("week")),
       title: String(form.get("title") ?? ""),
-      description: String(form.get("description") ?? ""),
       file,
       originalFileName: String(form.get("originalFileName") ?? ""),
       createdBy: session.username,

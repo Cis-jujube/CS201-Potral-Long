@@ -6,7 +6,12 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { QuestionProgressStatus } from "@/lib/course/types";
 import type { HomeworkQuestionDetail, HomeworkSection } from "@/lib/homework/types";
-import { buildHomeworkProgressSnapshot, getQuestionStatus } from "@/lib/homework/progress";
+import { getQuestionStatus } from "@/lib/homework/progress";
+import type {
+  HomeworkQuestionSyncStatus,
+  HomeworkStatusPayload,
+  HomeworkTeacherQuestionStatus,
+} from "@/lib/homework/statusTypes";
 import type {
   HomeworkPracticeQuestion,
   NoticePracticeQuestion,
@@ -24,18 +29,35 @@ interface HomeworkPracticeBoardProps {
   questionProgressMap: Record<string, QuestionProgressStatus>;
   onSetQuestionStatus: (questionId: string, status: QuestionProgressStatus) => void;
   onQuizRefresh?: () => void;
+  homeworkStatusSource?: HomeworkStatusViewSource;
 }
 
-const STATUS_LABEL_MAP: Record<QuestionProgressStatus, string> = {
+interface HomeworkStatusViewSource {
+  state: "loading" | "ready" | "error";
+  status?: HomeworkStatusPayload;
+  error?: string;
+  refresh?: () => void;
+}
+
+const STATUS_LABEL_MAP: Record<HomeworkTeacherQuestionStatus, string> = {
   "not-started": "Not started",
   correct: "Correct",
   incorrect: "Incorrect",
+  ungraded: "Ungraded",
 };
 
-const STATUS_CLASS_MAP: Record<QuestionProgressStatus, string> = {
+const STATUS_CLASS_MAP: Record<HomeworkTeacherQuestionStatus, string> = {
   "not-started": "bg-[var(--surface-2)]",
   correct: "bg-emerald-500/80",
   incorrect: "bg-rose-500/80",
+  ungraded: "bg-amber-500/80",
+};
+
+const STATUS_BADGE_CLASS_MAP: Record<HomeworkTeacherQuestionStatus, string> = {
+  "not-started": "",
+  correct: "bg-emerald-500/80 text-white",
+  incorrect: "bg-rose-500/80 text-white",
+  ungraded: "bg-amber-500/80 text-white",
 };
 
 const quizStatusLabel = (status: QuizPracticeQuestion["status"]) =>
@@ -72,11 +94,89 @@ const sourceButton = (href?: string) =>
     </a>
   ) : null;
 
+const syncedQuestionStatus = (questionId: string, homeworkStatus?: HomeworkStatusPayload) =>
+  homeworkStatus?.questionStatuses[questionId];
+
+const effectiveQuestionStatus = (
+  questionId: string,
+  questionProgressMap: Record<string, QuestionProgressStatus>,
+  homeworkStatus?: HomeworkStatusPayload,
+): HomeworkTeacherQuestionStatus =>
+  syncedQuestionStatus(questionId, homeworkStatus)?.status ?? getQuestionStatus(questionId, questionProgressMap);
+
+const buildHomeworkDisplayProgress = (
+  questions: HomeworkPracticeQuestion[],
+  questionProgressMap: Record<string, QuestionProgressStatus>,
+  homeworkStatus?: HomeworkStatusPayload,
+) => {
+  const counts = questions.reduce(
+    (accumulator, question) => {
+      const status = effectiveQuestionStatus(question.id, questionProgressMap, homeworkStatus);
+      if (status === "correct") {
+        accumulator.correct += 1;
+      } else if (status === "incorrect") {
+        accumulator.incorrect += 1;
+      } else if (status === "ungraded") {
+        accumulator.ungraded += 1;
+      } else {
+        accumulator.notStarted += 1;
+      }
+      return accumulator;
+    },
+    { correct: 0, incorrect: 0, ungraded: 0, notStarted: 0 },
+  );
+  const total = questions.length;
+
+  return {
+    ...counts,
+    total,
+    isComplete: total > 0 && counts.correct === total,
+  };
+};
+
+const formatHomeworkSummary = ({
+  correct,
+  incorrect,
+  ungraded,
+  total,
+}: {
+  correct: number;
+  incorrect: number;
+  ungraded: number;
+  total: number;
+}) => {
+  const extras = [
+    incorrect > 0 ? `${incorrect} wrong` : "",
+    ungraded > 0 ? `${ungraded} ungraded` : "",
+  ].filter(Boolean);
+
+  return `${correct}/${total} correct${extras.length > 0 ? ` · ${extras.join(" · ")}` : ""}`;
+};
+
+const formatStatusTimestamp = (value?: string) => {
+  if (!value) {
+    return undefined;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
 export function HomeworkPracticeBoard({
   entries,
   questionProgressMap,
   onSetQuestionStatus,
   onQuizRefresh,
+  homeworkStatusSource,
 }: HomeworkPracticeBoardProps) {
   const [selectedEntryId, setSelectedEntryId] = useState("");
   const [selectedQuestionId, setSelectedQuestionId] = useState("");
@@ -91,6 +191,7 @@ export function HomeworkPracticeBoard({
 
   const selectedQuestion =
     selectedEntry.questions.find((question) => question.id === selectedQuestionId) ?? selectedEntry.questions[0];
+  const homeworkStatus = homeworkStatusSource?.status;
 
   return (
     <div className="space-y-4">
@@ -103,6 +204,7 @@ export function HomeworkPracticeBoard({
               entry={entry}
               selected={selectedEntry.id === entry.id}
               questionProgressMap={questionProgressMap}
+              homeworkStatus={homeworkStatus}
               onSelect={() => {
                 setSelectedEntryId(entry.id);
                 setSelectedQuestionId(entry.questions[0]?.id ?? "");
@@ -121,25 +223,38 @@ export function HomeworkPracticeBoard({
           <p className="text-sm text-muted">This entry is listed but no question detail is available yet.</p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {selectedEntry.questions.map((question) => (
-              <button
-                key={question.id}
-                type="button"
-                onClick={() => setSelectedQuestionId(question.id)}
-                className={`rounded-lg px-3 py-1.5 text-sm transition ${
-                  selectedQuestion?.id === question.id
-                    ? "bg-[var(--accent)] text-white"
-                    : question.kind === "quiz" && question.status === "passed"
-                      ? "bg-emerald-500/80 text-white"
-                      : "surface-muted"
-                }`}
-              >
-                {question.label || question.title}
-                {question.kind === "quiz" && question.status === "passed" ? (
-                  <CheckCircle2 aria-label="passed" className="ml-1 inline size-3.5 align-[-2px]" />
-                ) : null}
-              </button>
-            ))}
+            {selectedEntry.questions.map((question) => {
+              const status =
+                question.kind === "homework"
+                  ? effectiveQuestionStatus(question.id, questionProgressMap, homeworkStatus)
+                  : undefined;
+              return (
+                <button
+                  key={question.id}
+                  type="button"
+                  onClick={() => setSelectedQuestionId(question.id)}
+                  className={`rounded-lg px-3 py-1.5 text-sm transition ${
+                    selectedQuestion?.id === question.id
+                      ? "bg-[var(--accent)] text-white"
+                      : question.kind === "quiz" && question.status === "passed"
+                        ? "bg-emerald-500/80 text-white"
+                        : question.kind === "homework" && status === "correct"
+                          ? "bg-emerald-500/70 text-white"
+                          : question.kind === "homework" && status === "incorrect"
+                            ? "bg-rose-500/70 text-white"
+                            : question.kind === "homework" && status === "ungraded"
+                              ? "bg-amber-500/70 text-white"
+                              : "surface-muted"
+                  }`}
+                >
+                  {question.label || question.title}
+                  {(question.kind === "quiz" && question.status === "passed") ||
+                  (question.kind === "homework" && status === "correct") ? (
+                    <CheckCircle2 aria-label="passed" className="ml-1 inline size-3.5 align-[-2px]" />
+                  ) : null}
+                </button>
+              );
+            })}
           </div>
         )}
       </section>
@@ -148,14 +263,20 @@ export function HomeworkPracticeBoard({
         <PracticeQuestionDetail
           entry={selectedEntry}
           question={selectedQuestion}
-          status={getQuestionStatus(selectedQuestion.id, questionProgressMap)}
+          status={effectiveQuestionStatus(selectedQuestion.id, questionProgressMap, homeworkStatus)}
+          localStatus={getQuestionStatus(selectedQuestion.id, questionProgressMap)}
+          teacherStatus={syncedQuestionStatus(selectedQuestion.id, homeworkStatus)}
           onSetStatus={onSetQuestionStatus}
           onQuizRefresh={onQuizRefresh}
         />
       ) : null}
 
       {selectedEntry.kind === "homework" ? (
-        <HomeworkProgress entry={selectedEntry} questionProgressMap={questionProgressMap} />
+        <HomeworkProgress
+          entry={selectedEntry}
+          questionProgressMap={questionProgressMap}
+          homeworkStatusSource={homeworkStatusSource}
+        />
       ) : selectedEntry.kind === "quiz" ? (
         <QuizProgress entry={selectedEntry} />
       ) : null}
@@ -167,11 +288,13 @@ function PracticeEntryButton({
   entry,
   selected,
   questionProgressMap,
+  homeworkStatus,
   onSelect,
 }: {
   entry: PracticeEntry;
   selected: boolean;
   questionProgressMap: Record<string, QuestionProgressStatus>;
+  homeworkStatus?: HomeworkStatusPayload;
   onSelect: () => void;
 }) {
   const homeworkQuestions = entry.questions.filter(
@@ -179,8 +302,11 @@ function PracticeEntryButton({
   );
   const isComplete =
     entry.kind === "homework" && homeworkQuestions.length > 0
-      ? homeworkQuestions.every((question) => getQuestionStatus(question.id, questionProgressMap) === "correct")
+      ? homeworkQuestions.every(
+          (question) => effectiveQuestionStatus(question.id, questionProgressMap, homeworkStatus) === "correct",
+        )
       : false;
+  const summary = entry.kind === "homework" ? homeworkStatus?.homeworkStatuses[entry.id] : undefined;
 
   return (
     <button
@@ -197,7 +323,13 @@ function PracticeEntryButton({
       }`}
     >
       {entry.title}
-      {entry.statusLabel ? <span className="ml-2 text-[0.68rem] opacity-75">{entry.statusLabel}</span> : null}
+      {summary ? (
+        <span className="ml-2 text-[0.68rem] opacity-75">
+          {formatHomeworkSummary(summary)}
+        </span>
+      ) : entry.statusLabel ? (
+        <span className="ml-2 text-[0.68rem] opacity-75">{entry.statusLabel}</span>
+      ) : null}
     </button>
   );
 }
@@ -206,17 +338,29 @@ function PracticeQuestionDetail({
   entry,
   question,
   status,
+  localStatus,
+  teacherStatus,
   onSetStatus,
   onQuizRefresh,
 }: {
   entry: PracticeEntry;
   question: PracticeQuestion;
-  status: QuestionProgressStatus;
+  status: HomeworkTeacherQuestionStatus;
+  localStatus: QuestionProgressStatus;
+  teacherStatus?: HomeworkQuestionSyncStatus;
   onSetStatus: (questionId: string, status: QuestionProgressStatus) => void;
   onQuizRefresh?: () => void;
 }) {
   if (question.kind === "homework") {
-    return <HomeworkQuestionDetailView question={question.homework} status={status} onSetStatus={onSetStatus} />;
+    return (
+      <HomeworkQuestionDetailView
+        question={question.homework}
+        status={status}
+        localStatus={localStatus}
+        teacherStatus={teacherStatus}
+        onSetStatus={onSetStatus}
+      />
+    );
   }
 
   if (question.kind === "quiz") {
@@ -233,10 +377,14 @@ function PracticeQuestionDetail({
 function HomeworkQuestionDetailView({
   question,
   status,
+  localStatus,
+  teacherStatus,
   onSetStatus,
 }: {
   question: HomeworkQuestionDetail;
-  status: QuestionProgressStatus;
+  status: HomeworkTeacherQuestionStatus;
+  localStatus: QuestionProgressStatus;
+  teacherStatus?: HomeworkQuestionSyncStatus;
   onSetStatus: (questionId: string, status: QuestionProgressStatus) => void;
 }) {
   const visibleSections = question.sections.filter((section) => section.heading !== question.title);
@@ -250,19 +398,23 @@ function HomeworkQuestionDetailView({
         metadata={question.metadata}
         sourceHref={question.sourceHref}
       >
-        <div className="flex flex-wrap gap-2">
-          {(["not-started", "correct", "incorrect"] as const).map((nextStatus) => (
-            <button
-              key={nextStatus}
-              type="button"
-              onClick={() => onSetStatus(question.id, nextStatus)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                status === nextStatus ? "bg-[var(--accent)] text-white" : "surface-muted"
-              }`}
-            >
-              {STATUS_LABEL_MAP[nextStatus]}
-            </button>
-          ))}
+        <div className="flex flex-col items-start gap-2 lg:items-end">
+          <HomeworkTeacherStatusBadge status={teacherStatus} fallbackStatus={status} />
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            <span className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-muted">Local note</span>
+            {(["not-started", "correct", "incorrect"] as const).map((nextStatus) => (
+              <button
+                key={nextStatus}
+                type="button"
+                onClick={() => onSetStatus(question.id, nextStatus)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                  localStatus === nextStatus ? "bg-[var(--accent)] text-white" : "surface-muted"
+                }`}
+              >
+                {STATUS_LABEL_MAP[nextStatus]}
+              </button>
+            ))}
+          </div>
         </div>
       </DocumentHeader>
 
@@ -276,6 +428,29 @@ function HomeworkQuestionDetailView({
         </div>
       </div>
     </section>
+  );
+}
+
+function HomeworkTeacherStatusBadge({
+  status,
+  fallbackStatus,
+}: {
+  status?: HomeworkQuestionSyncStatus;
+  fallbackStatus: HomeworkTeacherQuestionStatus;
+}) {
+  if (!status) {
+    return <span className={`badge ${STATUS_BADGE_CLASS_MAP[fallbackStatus]}`}>{STATUS_LABEL_MAP[fallbackStatus]}</span>;
+  }
+
+  const updated = formatStatusTimestamp(status.lastUpdated);
+  return (
+    <div className="flex flex-wrap gap-2 lg:justify-end">
+      <span className={`badge ${STATUS_BADGE_CLASS_MAP[status.status]}`}>
+        Teacher site: {STATUS_LABEL_MAP[status.status]}
+      </span>
+      {status.grade !== undefined ? <span className="badge">Grade {status.grade}</span> : null}
+      {updated ? <span className="badge">Updated {updated}</span> : null}
+    </div>
   );
 }
 
@@ -589,40 +764,71 @@ function QuizQuestionDetail({
 function HomeworkProgress({
   entry,
   questionProgressMap,
+  homeworkStatusSource,
 }: {
   entry: PracticeEntry;
   questionProgressMap: Record<string, QuestionProgressStatus>;
+  homeworkStatusSource?: HomeworkStatusViewSource;
 }) {
   const homeworkQuestions = entry.questions.filter(
     (question): question is HomeworkPracticeQuestion => question.kind === "homework",
   );
-  const homeworkLike = {
-    ...entry,
-    questions: homeworkQuestions.map((question) => question.homework),
-  };
-  const homeworkProgress = buildHomeworkProgressSnapshot(homeworkLike, questionProgressMap);
+  const homeworkStatus = homeworkStatusSource?.status;
+  const homeworkProgress = buildHomeworkDisplayProgress(homeworkQuestions, questionProgressMap, homeworkStatus);
+  const syncMessage =
+    homeworkStatusSource?.state === "loading"
+      ? "Loading teacher-site JPA status..."
+      : homeworkStatusSource?.state === "error"
+        ? homeworkStatusSource.error ?? "Teacher-site JPA status unavailable."
+        : homeworkStatus?.syncStatus === "synced"
+          ? `Teacher-site JPA status synced${homeworkStatus.courseId ? ` from ${homeworkStatus.courseId}` : ""}.`
+          : homeworkStatus?.syncMessage;
 
   return (
     <section className="surface-card p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <p className="kicker">Question Progress</p>
-        <span className={`badge ${homeworkProgress.isComplete ? "bg-emerald-500/80 text-white" : ""}`}>
-          {homeworkProgress.correct}/{homeworkProgress.total} correct
-        </span>
+      <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="kicker">Question Progress</p>
+          {syncMessage ? <p className="mt-1 text-sm text-muted">{syncMessage}</p> : null}
+        </div>
+        <div className="flex flex-wrap gap-2 lg:justify-end">
+          <span className={`badge ${homeworkProgress.isComplete ? "bg-emerald-500/80 text-white" : ""}`}>
+            {formatHomeworkSummary(homeworkProgress)}
+          </span>
+          {homeworkProgress.notStarted > 0 ? <span className="badge">{homeworkProgress.notStarted} not started</span> : null}
+          {homeworkStatus?.syncStatus ? <span className="badge capitalize">{homeworkStatus.syncStatus}</span> : null}
+          {homeworkStatusSource?.refresh ? (
+            <button
+              type="button"
+              className="button-ghost px-2.5 py-1.5 text-xs"
+              onClick={homeworkStatusSource.refresh}
+            >
+              <RefreshCw className="mr-1 size-3.5" />
+              Refresh status
+            </button>
+          ) : null}
+        </div>
       </div>
       <div className="space-y-2">
         {homeworkQuestions.map((question) => {
-          const status = getQuestionStatus(question.id, questionProgressMap);
+          const teacherStatus = syncedQuestionStatus(question.id, homeworkStatus);
+          const status = teacherStatus?.status ?? getQuestionStatus(question.id, questionProgressMap);
+          const updated = formatStatusTimestamp(teacherStatus?.lastUpdated);
           return (
             <div key={question.id} className="surface-muted rounded-xl p-3">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold">{question.title}</p>
-                <p className="text-xs text-muted">{STATUS_LABEL_MAP[status]}</p>
+              <div className="mb-2 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="min-w-0 text-sm font-semibold">{question.title}</p>
+                <div className="flex w-full min-w-0 flex-wrap gap-2 sm:w-auto sm:justify-end">
+                  <span className={`badge ${STATUS_BADGE_CLASS_MAP[status]}`}>{STATUS_LABEL_MAP[status]}</span>
+                  {teacherStatus ? <span className="badge">Teacher site</span> : null}
+                  {teacherStatus?.grade !== undefined ? <span className="badge">Grade {teacherStatus.grade}</span> : null}
+                  {updated ? <span className="badge max-w-full whitespace-normal break-words text-left">Updated {updated}</span> : null}
+                </div>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-[var(--surface)]">
                 <div
                   className={`h-full rounded-full transition-all ${STATUS_CLASS_MAP[status]}`}
-                  style={{ width: status === "not-started" ? "35%" : "100%" }}
+                  style={{ width: status === "not-started" ? "35%" : status === "ungraded" ? "65%" : "100%" }}
                 />
               </div>
             </div>

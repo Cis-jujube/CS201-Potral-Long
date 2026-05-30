@@ -1,18 +1,30 @@
 "use client";
 
-import type { Dispatch, FormEvent, SetStateAction } from "react";
-import { useEffect, useMemo, useState, useTransition } from "react";
-import type { ReactNode } from "react";
+import type { ChangeEvent, Dispatch, DragEvent, ReactNode, SetStateAction } from "react";
+import { useMemo, useRef, useState, useTransition, useEffect } from "react";
+import {
+  CalendarDays,
+  Clock,
+  Eye,
+  EyeOff,
+  FileText,
+  LoaderCircle,
+  RotateCcw,
+  Save,
+  Search,
+  Trash2,
+  UploadCloud,
+  X,
+} from "lucide-react";
 
 import type { ClassNoteItem, ClassNotesPayload } from "@/lib/class-notes/types";
 import type {
   AdminDeadlineOverride,
   AdminEditableContent,
-  AdminResourceOverride,
   AdminTaskOverride,
   CourseAdminOverrides,
 } from "@/lib/admin/overrides";
-import { COURSE_WEEKS, type ResourceItem, type TaskItem, type WeekNumber } from "@/lib/course/types";
+import { COURSE_WEEKS, type DeadlineItem, type TaskItem, type WeekNumber } from "@/lib/course/types";
 import { cn } from "@/lib/utils/cn";
 
 interface AdminResponse {
@@ -23,6 +35,49 @@ interface AdminResponse {
   error?: string;
 }
 
+type Segment = "dates" | "files" | "preview";
+type VisibilityFilter = "all" | "visible" | "hidden";
+type ChipTone = "visible" | "hidden" | "dirty" | "saved" | "neutral" | "error";
+type QueueStatus = "queued" | "invalid" | "uploading" | "uploaded" | "error";
+
+interface UploadQueueItem {
+  id: string;
+  file: File;
+  title: string;
+  week: WeekNumber;
+  status: QueueStatus;
+  message?: string;
+  note?: ClassNoteItem;
+}
+
+type ScheduleRow =
+  | {
+      kind: "task";
+      id: string;
+      itemType: TaskItem["type"];
+      title: string;
+      dueDate: string;
+      hidden: boolean;
+      showDue: boolean;
+      canToggleDue: true;
+      dueKind: TaskItem["dueKind"];
+      unsaved: boolean;
+      task: TaskItem;
+    }
+  | {
+      kind: "deadline";
+      id: string;
+      itemType: DeadlineItem["type"];
+      title: string;
+      dueDate: string;
+      hidden: boolean;
+      showDue: true;
+      canToggleDue: false;
+      dueKind: DeadlineItem["dueKind"];
+      unsaved: boolean;
+      deadline: DeadlineItem;
+    };
+
 const emptyOverrides = (): CourseAdminOverrides => ({
   version: 1,
   tasks: {},
@@ -32,18 +87,32 @@ const emptyOverrides = (): CourseAdminOverrides => ({
 });
 
 const isReflectionTask = (task: TaskItem) => task.type === "ai-reflection" || task.type === "bk-reflection";
+const taskSection = (task: TaskItem) => (isReflectionTask(task) ? "reflections" : "tasks");
 const sortClassNotes = (notes: ClassNoteItem[]) =>
   [...notes].sort((left, right) => left.week - right.week || left.title.localeCompare(right.title));
 const overrideSignature = (override: unknown) => JSON.stringify(override ?? {});
 const hasUnsavedOverride = (current: unknown, saved: unknown) =>
   overrideSignature(current) !== overrideSignature(saved);
-const isStudentVisible = (hidden?: boolean) => hidden !== true;
+const taskIdFromDeadline = (deadline: DeadlineItem) =>
+  deadline.id.startsWith("ddl-") ? deadline.id.slice(4) : undefined;
 
-type VisibilityFilter = "all" | "visible" | "hidden";
-type ChipTone = "visible" | "hidden" | "dirty" | "saved" | "neutral";
+const segmentConfig: Array<{ id: Segment; label: string; icon: typeof CalendarDays }> = [
+  { id: "dates", label: "Dates", icon: CalendarDays },
+  { id: "files", label: "Files", icon: UploadCloud },
+  { id: "preview", label: "Preview", icon: Eye },
+];
+
+const allowedClassNoteTypes: Record<string, string[]> = {
+  ".pdf": ["application/pdf"],
+  ".png": ["image/png"],
+  ".jpg": ["image/jpeg"],
+  ".jpeg": ["image/jpeg"],
+  ".webp": ["image/webp"],
+};
 
 export function AdminBoard() {
   const [selectedWeek, setSelectedWeek] = useState<WeekNumber>(1);
+  const [activeSegment, setActiveSegment] = useState<Segment>("dates");
   const [base, setBase] = useState<AdminEditableContent | null>(null);
   const [overrides, setOverrides] = useState<CourseAdminOverrides>(emptyOverrides);
   const [savedOverrides, setSavedOverrides] = useState<CourseAdminOverrides>(emptyOverrides);
@@ -96,7 +165,7 @@ export function AdminBoard() {
   }, []);
 
   const updateTask = (task: TaskItem, patch: AdminTaskOverride) => {
-    const section = isReflectionTask(task) ? "reflections" : "tasks";
+    const section = taskSection(task);
     setOverrides((current) => ({
       ...current,
       [section]: {
@@ -116,19 +185,6 @@ export function AdminBoard() {
         ...current.deadlines,
         [id]: {
           ...current.deadlines[id],
-          ...patch,
-        },
-      },
-    }));
-  };
-
-  const updateResource = (id: string, patch: AdminResourceOverride) => {
-    setOverrides((current) => ({
-      ...current,
-      resources: {
-        ...current.resources,
-        [id]: {
-          ...current.resources[id],
           ...patch,
         },
       },
@@ -184,146 +240,160 @@ export function AdminBoard() {
   }
 
   const weekTasks = base.tasks.filter((task) => task.weeks.includes(selectedWeek));
-  const weekDeadlines = base.deadlines.filter((deadline) => deadline.week === selectedWeek);
-  const weekResources = base.resources.filter((resource) => resource.weeks.includes(selectedWeek));
+  const taskIds = new Set(base.tasks.map((task) => task.id));
+  const weekStandaloneDeadlines = base.deadlines.filter((deadline) => {
+    if (deadline.week !== selectedWeek) {
+      return false;
+    }
+
+    const taskId = taskIdFromDeadline(deadline);
+    return !taskId || !taskIds.has(taskId);
+  });
   const weekClassNotes = classNotes.filter((note) => note.week === selectedWeek);
+
+  const scheduleRows: ScheduleRow[] = [
+    ...weekTasks.map((task): ScheduleRow => {
+      const section = taskSection(task);
+      const override = overrides[section][task.id];
+      const savedOverride = savedOverrides[section][task.id];
+      return {
+        kind: "task",
+        id: task.id,
+        itemType: task.type,
+        title: override?.title ?? task.title,
+        dueDate: override?.dueDate ?? task.dueDate,
+        hidden: Boolean(override?.hidden),
+        showDue: override?.showDue ?? task.showDue ?? true,
+        canToggleDue: true,
+        dueKind: task.dueKind,
+        unsaved: hasUnsavedOverride(override, savedOverride),
+        task,
+      };
+    }),
+    ...weekStandaloneDeadlines.map((deadline): ScheduleRow => {
+      const override = overrides.deadlines[deadline.id];
+      const savedOverride = savedOverrides.deadlines[deadline.id];
+      return {
+        kind: "deadline",
+        id: deadline.id,
+        itemType: deadline.type,
+        title: override?.title ?? deadline.title,
+        dueDate: override?.dueDate ?? deadline.dueDate,
+        hidden: Boolean(override?.hidden),
+        showDue: true,
+        canToggleDue: false,
+        dueKind: deadline.dueKind,
+        unsaved: hasUnsavedOverride(override, savedOverride),
+        deadline,
+      };
+    }),
+  ].sort((left, right) => new Date(left.dueDate).getTime() - new Date(right.dueDate).getTime());
+
+  const unsavedCount = scheduleRows.filter((row) => row.unsaved).length;
+  const hiddenCount =
+    scheduleRows.filter((row) => row.hidden || (row.canToggleDue && !row.showDue)).length +
+    weekClassNotes.filter((note) => note.hidden).length;
   const hasUnsavedChanges = hasUnsavedOverride(overrides, savedOverrides);
+  const lastSaved = formatSavedAt(savedOverrides.updatedAt);
 
   return (
     <div className="space-y-4">
-      <section className="surface-card p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="kicker">Admin v1</p>
-            <h2 className="mt-1 text-lg font-semibold">Local content publishing workbench</h2>
-            <p className="mt-1 max-w-2xl text-sm text-muted">
-              Signed in as {username || "admin"}. These edits change the local portal only and never write to the teacher x.bk site.
+      <section className="surface-card sticky top-3 z-20 p-4 shadow-md">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
+            <p className="kicker">Admin Workbench</p>
+            <h2 className="mt-1 text-lg font-semibold">Professor date and file controls</h2>
+            <p className="mt-1 text-sm text-muted">
+              Signed in as {username || "admin"}. Edits stay local until Save and never write to the teacher site.
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <StatusChip tone={hasUnsavedChanges ? "dirty" : "saved"}>
-                {hasUnsavedChanges ? "Unsaved changes" : "Saved locally"}
-              </StatusChip>
-              <StatusChip tone="neutral">Explicit Save required</StatusChip>
-            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="button-ghost px-3 py-2 text-sm" disabled={isPending} onClick={reset}>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:min-w-[560px]">
+            <Metric label="Week" value={String(selectedWeek)} />
+            <Metric label="Editable" value={String(scheduleRows.length + weekClassNotes.length)} />
+            <Metric label="Hidden/date off" value={String(hiddenCount)} />
+            <Metric label="Unsaved" value={String(unsavedCount)} tone={hasUnsavedChanges ? "dirty" : "saved"} />
+          </div>
+
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <button type="button" className="button-ghost gap-2 px-3 py-2 text-sm" disabled={isPending} onClick={reset}>
+              <RotateCcw className="size-4" />
               Reset
             </button>
-            <button type="button" className="button-primary px-3 py-2 text-sm" disabled={isPending} onClick={save}>
+            <button type="button" className="button-primary gap-2 px-3 py-2 text-sm" disabled={isPending} onClick={save}>
+              {isPending ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}
               {isPending ? "Saving..." : "Save"}
             </button>
           </div>
         </div>
-        {message ? <p className="mt-3 rounded-xl bg-[var(--surface-2)] p-3 text-sm text-muted">{message}</p> : null}
+
+        <div className="mt-4 flex flex-col gap-3 border-t border-[var(--border)] pt-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap gap-2">
+            <StatusChip tone={hasUnsavedChanges ? "dirty" : "saved"}>
+              {hasUnsavedChanges ? "Unsaved changes" : "Saved locally"}
+            </StatusChip>
+            <StatusChip tone="neutral">Last saved: {lastSaved}</StatusChip>
+          </div>
+          {message ? <p className="rounded-xl bg-[var(--surface-2)] px-3 py-2 text-sm text-muted">{message}</p> : null}
+        </div>
       </section>
 
       <section className="surface-card p-4">
-        <p className="kicker mb-2">Week Selector</p>
-        <div className="flex flex-wrap gap-2">
-          {COURSE_WEEKS.map((week) => (
-            <button
-              key={week}
-              type="button"
-              onClick={() => setSelectedWeek(week)}
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-sm transition",
-                selectedWeek === week ? "bg-[var(--accent)] text-white" : "surface-muted",
-              )}
-            >
-              Week {week}
-            </button>
-          ))}
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="kicker mb-2">Week Selector</p>
+            <div className="flex flex-wrap gap-2">
+              {COURSE_WEEKS.map((week) => (
+                <button
+                  key={week}
+                  type="button"
+                  onClick={() => setSelectedWeek(week)}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-sm transition",
+                    selectedWeek === week ? "bg-[var(--accent)] text-white" : "surface-muted",
+                  )}
+                >
+                  Week {week}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="inline-flex overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-1">
+            {segmentConfig.map((segment) => {
+              const Icon = segment.icon;
+              const selected = activeSegment === segment.id;
+              return (
+                <button
+                  key={segment.id}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => setActiveSegment(segment.id)}
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition",
+                    selected ? "bg-[var(--accent)] text-white shadow-sm" : "text-muted hover:bg-[var(--surface)] hover:text-[var(--text)]",
+                  )}
+                >
+                  <Icon className="size-4 shrink-0" />
+                  {segment.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </section>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="space-y-4">
-          <EditorSection
-            title="Content"
-            description="Edit weekly task, reflection, and resource cards. Hidden items are removed from the student portal after Save."
-          >
-            <div className="space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Tasks and reflections</p>
-              {weekTasks.map((task) => {
-                const section = isReflectionTask(task) ? "reflections" : "tasks";
-                return (
-                  <TaskEditor
-                    key={task.id}
-                    task={task}
-                    override={overrides[section][task.id]}
-                    savedOverride={savedOverrides[section][task.id]}
-                    onUpdate={updateTask}
-                  />
-                );
-              })}
-            </div>
+      {activeSegment === "dates" ? (
+        <DateWorkbench rows={scheduleRows} updateTask={updateTask} updateDeadline={updateDeadline} />
+      ) : null}
 
-            <div className="mt-5 space-y-3 border-t border-[var(--border)] pt-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Resource cards</p>
-              {weekResources.length > 0 ? (
-                weekResources.map((resource) => (
-                  <ResourceEditor
-                    key={resource.id}
-                    resource={resource}
-                    override={overrides.resources[resource.id]}
-                    savedOverride={savedOverrides.resources[resource.id]}
-                    onUpdate={updateResource}
-                  />
-                ))
-              ) : (
-                <p className="text-sm text-muted">No local resource cards are attached to this week.</p>
-              )}
-            </div>
-          </EditorSection>
+      {activeSegment === "files" ? (
+        <ClassNotesManager selectedWeek={selectedWeek} notes={weekClassNotes} setNotes={setClassNotes} />
+      ) : null}
 
-          <EditorSection
-            title="Calendar"
-            description="Control calendar-only visibility and date copy. Recommended and required due kinds keep their existing semantics."
-          >
-            {weekDeadlines.map((deadline) => (
-              <article key={deadline.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-sm font-semibold">{deadline.title}</h3>
-                    <p className="mt-1 text-xs text-muted">{deadline.type}</p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <StatusChip tone={isStudentVisible(overrides.deadlines[deadline.id]?.hidden) ? "visible" : "hidden"}>
-                        {isStudentVisible(overrides.deadlines[deadline.id]?.hidden) ? "Student-visible" : "Hidden"}
-                      </StatusChip>
-                      <StatusChip tone={hasUnsavedOverride(overrides.deadlines[deadline.id], savedOverrides.deadlines[deadline.id]) ? "dirty" : "saved"}>
-                        {hasUnsavedOverride(overrides.deadlines[deadline.id], savedOverrides.deadlines[deadline.id]) ? "Unsaved changes" : "Saved locally"}
-                      </StatusChip>
-                    </div>
-                  </div>
-                  <HiddenToggle
-                    checked={Boolean(overrides.deadlines[deadline.id]?.hidden)}
-                    onChange={(hidden) => updateDeadline(deadline.id, { hidden })}
-                  />
-                </div>
-                <TextField label="Title" value={overrides.deadlines[deadline.id]?.title ?? deadline.title} onChange={(title) => updateDeadline(deadline.id, { title })} />
-                <TextField label="Date" value={overrides.deadlines[deadline.id]?.dueDate ?? deadline.dueDate} onChange={(dueDate) => updateDeadline(deadline.id, { dueDate })} />
-                <TextAreaField label="Detail" value={overrides.deadlines[deadline.id]?.detail ?? deadline.detail ?? ""} onChange={(detail) => updateDeadline(deadline.id, { detail })} />
-              </article>
-            ))}
-          </EditorSection>
-
-          <EditorSection
-            title="Files / Class Notes"
-            description="Upload, hide, and maintain local PDF/image class notes for the selected week."
-          >
-            <ClassNotesManager selectedWeek={selectedWeek} notes={weekClassNotes} setNotes={setClassNotes} />
-          </EditorSection>
-        </div>
-
-        <PreviewPanel
-          selectedWeek={selectedWeek}
-          tasks={weekTasks}
-          resources={weekResources}
-          classNotes={weekClassNotes}
-          overrides={overrides}
-        />
-      </div>
+      {activeSegment === "preview" ? (
+        <PreviewPanel selectedWeek={selectedWeek} rows={scheduleRows} classNotes={weekClassNotes} />
+      ) : null}
     </div>
   );
 }
@@ -337,115 +407,136 @@ function StateCard({ title, message }: { title: string; message: string }) {
   );
 }
 
-function EditorSection({
-  title,
-  description,
-  children,
+function Metric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "neutral" | "dirty" | "saved" }) {
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">{label}</p>
+      <p className={cn("mt-1 text-xl font-semibold leading-none", tone === "dirty" && "text-[var(--warning)]", tone === "saved" && "text-[var(--success)]")}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function DateWorkbench({
+  rows,
+  updateTask,
+  updateDeadline,
 }: {
-  title: string;
-  description?: string;
-  children: ReactNode;
+  rows: ScheduleRow[];
+  updateTask: (task: TaskItem, patch: AdminTaskOverride) => void;
+  updateDeadline: (id: string, patch: AdminDeadlineOverride) => void;
 }) {
+  const patchRow = (row: ScheduleRow, patch: AdminTaskOverride | AdminDeadlineOverride) => {
+    if (row.kind === "task") {
+      updateTask(row.task, patch as AdminTaskOverride);
+      return;
+    }
+
+    updateDeadline(row.id, patch as AdminDeadlineOverride);
+  };
+
   return (
     <section className="surface-card p-5">
-      <p className="kicker">{title}</p>
-      {description ? <p className="mt-1 text-sm text-muted">{description}</p> : null}
-      <div className="mt-3 space-y-3">{children}</div>
-    </section>
-  );
-}
-
-function StatusChip({ tone, children }: { tone: ChipTone; children: ReactNode }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em]",
-        tone === "visible" && "bg-[var(--accent-soft)] text-[var(--accent)]",
-        tone === "hidden" && "bg-rose-500/10 text-[var(--danger)]",
-        tone === "dirty" && "bg-amber-500/15 text-[var(--warning)]",
-        tone === "saved" && "bg-emerald-500/10 text-[var(--success)]",
-        tone === "neutral" && "bg-[var(--surface-2)] text-muted",
-      )}
-    >
-      {children}
-    </span>
-  );
-}
-
-function TaskEditor({
-  task,
-  override,
-  savedOverride,
-  onUpdate,
-}: {
-  task: TaskItem;
-  override?: AdminTaskOverride;
-  savedOverride?: AdminTaskOverride;
-  onUpdate: (task: TaskItem, patch: AdminTaskOverride) => void;
-}) {
-  const showDue = override?.showDue ?? task.showDue ?? true;
-  const hidden = Boolean(override?.hidden);
-  const unsaved = hasUnsavedOverride(override, savedOverride);
-  return (
-    <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h3 className="text-sm font-semibold">{task.title}</h3>
-          <p className="mt-1 text-xs text-muted">{task.type}</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <StatusChip tone={hidden ? "hidden" : "visible"}>{hidden ? "Hidden" : "Student-visible"}</StatusChip>
-            <StatusChip tone={unsaved ? "dirty" : "saved"}>{unsaved ? "Unsaved changes" : "Saved locally"}</StatusChip>
-          </div>
+          <p className="kicker">Dates</p>
+          <h3 className="mt-1 text-base font-semibold">Weekly schedule table</h3>
+          <p className="mt-1 text-sm text-muted">Edit title, date, time, visibility, and due display.</p>
         </div>
-        <HiddenToggle checked={hidden} onChange={(nextHidden) => onUpdate(task, { hidden: nextHidden })} />
+        <StatusChip tone="neutral">{rows.length} row(s)</StatusChip>
       </div>
-      <TextField label="Title" value={override?.title ?? task.title} onChange={(title) => onUpdate(task, { title })} />
-      <TextAreaField label="Description" value={override?.description ?? task.description} onChange={(description) => onUpdate(task, { description })} />
-      <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto]">
-        <TextField label="Date" value={override?.dueDate ?? task.dueDate} onChange={(dueDate) => onUpdate(task, { dueDate })} />
-        <label className="flex items-end gap-2 pb-2 text-sm font-semibold">
-          <input type="checkbox" checked={showDue} onChange={(event) => onUpdate(task, { showDue: event.target.checked })} />
-          Show due
-        </label>
+
+      <div className="overflow-x-auto rounded-2xl border border-[var(--border)]">
+        <table className="min-w-[920px] w-full border-collapse bg-[var(--surface)] text-left text-sm">
+          <thead className="bg-[var(--surface-2)] text-xs uppercase tracking-[0.12em] text-muted">
+            <tr>
+              <th className="w-44 border-b border-[var(--border)] px-3 py-3 font-semibold">Type</th>
+              <th className="border-b border-[var(--border)] px-3 py-3 font-semibold">Title</th>
+              <th className="w-44 border-b border-[var(--border)] px-3 py-3 font-semibold">Date</th>
+              <th className="w-36 border-b border-[var(--border)] px-3 py-3 font-semibold">Time</th>
+              <th className="w-40 border-b border-[var(--border)] px-3 py-3 font-semibold">Visibility</th>
+              <th className="w-36 border-b border-[var(--border)] px-3 py-3 font-semibold">Due</th>
+              <th className="w-32 border-b border-[var(--border)] px-3 py-3 font-semibold">State</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${row.kind}-${row.id}`} className={cn("border-b border-[var(--border)] last:border-b-0", row.hidden && "opacity-70")}>
+                <td className="px-3 py-3 align-top">
+                  <div className="flex flex-col gap-2">
+                    <span className="font-semibold">{formatItemType(row.itemType)}</span>
+                    <span className={cn("w-fit rounded-full px-2 py-0.5 text-[11px] font-semibold", row.dueKind === "required" ? "bg-rose-500/10 text-[var(--danger)]" : "bg-[var(--accent-soft)] text-[var(--accent)]")}>
+                      {row.dueKind}
+                    </span>
+                  </div>
+                </td>
+                <td className="px-3 py-3 align-top">
+                  <TextField
+                    label={`${row.title} title`}
+                    hideLabel
+                    value={row.title}
+                    onChange={(title) => patchRow(row, { title })}
+                  />
+                </td>
+                <td className="px-3 py-3 align-top">
+                  <input
+                    aria-label={`${row.title} date`}
+                    type="date"
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+                    value={datePart(row.dueDate)}
+                    onChange={(event) => patchRow(row, { dueDate: replaceDatePart(row.dueDate, event.target.value) })}
+                  />
+                </td>
+                <td className="px-3 py-3 align-top">
+                  <input
+                    aria-label={`${row.title} time`}
+                    type="time"
+                    className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+                    value={timePart(row.dueDate)}
+                    onChange={(event) => patchRow(row, { dueDate: replaceTimePart(row.dueDate, event.target.value) })}
+                  />
+                </td>
+                <td className="px-3 py-3 align-top">
+                  <button
+                    type="button"
+                    className="button-ghost w-full gap-2 px-3 py-2 text-sm"
+                    onClick={() => patchRow(row, { hidden: !row.hidden })}
+                    aria-pressed={row.hidden}
+                  >
+                    {row.hidden ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    {row.hidden ? "Hidden" : "Visible"}
+                  </button>
+                </td>
+                <td className="px-3 py-3 align-top">
+                  {row.canToggleDue ? (
+                    <label className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm font-semibold">
+                      <input
+                        type="checkbox"
+                        checked={row.showDue}
+                        onChange={(event) => patchRow(row, { showDue: event.target.checked })}
+                      />
+                      Show due
+                    </label>
+                  ) : (
+                    <span className="inline-flex min-h-10 items-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm text-muted">
+                      Always shown
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-3 align-top">
+                  <StatusChip tone={row.unsaved ? "dirty" : "saved"}>{row.unsaved ? "Unsaved" : "Saved"}</StatusChip>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      {task.type === "ai-reflection" ? (
-        <p className="mt-3 text-xs text-muted">AI Reflection uses recommended Sunday due styling, not required due styling.</p>
+
+      {rows.length === 0 ? (
+        <p className="mt-3 rounded-xl bg-[var(--surface-2)] p-3 text-sm text-muted">No editable schedule rows for this week.</p>
       ) : null}
-    </article>
-  );
-}
-
-function ResourceEditor({
-  resource,
-  override,
-  savedOverride,
-  onUpdate,
-}: {
-  resource: ResourceItem;
-  override?: AdminResourceOverride;
-  savedOverride?: AdminResourceOverride;
-  onUpdate: (id: string, patch: AdminResourceOverride) => void;
-}) {
-  const hidden = Boolean(override?.hidden);
-  const unsaved = hasUnsavedOverride(override, savedOverride);
-
-  return (
-    <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold">{resource.title}</h3>
-          <p className="mt-1 text-xs text-muted">{resource.category}</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <StatusChip tone={hidden ? "hidden" : "visible"}>{hidden ? "Hidden" : "Student-visible"}</StatusChip>
-            <StatusChip tone={unsaved ? "dirty" : "saved"}>{unsaved ? "Unsaved changes" : "Saved locally"}</StatusChip>
-          </div>
-        </div>
-        <HiddenToggle checked={hidden} onChange={(nextHidden) => onUpdate(resource.id, { hidden: nextHidden })} />
-      </div>
-      <TextField label="Title" value={override?.title ?? resource.title} onChange={(title) => onUpdate(resource.id, { title })} />
-      <TextAreaField label="Description" value={override?.description ?? resource.description} onChange={(description) => onUpdate(resource.id, { description })} />
-      <TextField label="Link" value={override?.href ?? resource.href ?? ""} onChange={(href) => onUpdate(resource.id, { href })} />
-    </article>
+    </section>
   );
 }
 
@@ -458,20 +549,20 @@ function ClassNotesManager({
   notes: ClassNoteItem[];
   setNotes: Dispatch<SetStateAction<ClassNoteItem[]>>;
 }) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [queue, setQueue] = useState<UploadQueueItem[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [query, setQuery] = useState("");
   const [visibilityFilter, setVisibilityFilter] = useState<VisibilityFilter>("all");
+  const [dragActive, setDragActive] = useState(false);
 
   const filteredNotes = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return notes.filter((note) => {
       const matchesQuery =
         normalizedQuery.length === 0 ||
-        [note.title, note.description, note.originalFileName]
+        [note.title, note.originalFileName]
           .filter(Boolean)
           .some((value) => value?.toLowerCase().includes(normalizedQuery));
       const matchesVisibility =
@@ -490,77 +581,157 @@ function ClassNotesManager({
     setNotes((current) => current.filter((item) => item.id !== id));
   };
 
-  const upload = async (event: FormEvent<HTMLFormElement>) => {
+  const addFiles = (files: FileList | File[]) => {
+    const nextItems = Array.from(files).map((file) => buildQueueItem(file, selectedWeek));
+    if (nextItems.length === 0) {
+      return;
+    }
+
+    setQueue((current) => [...current, ...nextItems]);
+    setMessage(`${nextItems.length} file(s) added to the upload queue.`);
+  };
+
+  const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files) {
+      addFiles(event.target.files);
+    }
+    event.target.value = "";
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    if (!file) {
-      setMessage("Choose a PDF or image file before uploading.");
+    setDragActive(false);
+    addFiles(event.dataTransfer.files);
+  };
+
+  const updateQueueItem = (id: string, patch: Partial<UploadQueueItem>) => {
+    setQueue((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  };
+
+  const uploadQueuedFiles = async () => {
+    const queuedItems = queue.filter((item) => item.status === "queued");
+    if (queuedItems.length === 0) {
+      setMessage("No valid queued files to upload.");
       return;
     }
 
     setUploading(true);
     setMessage(null);
-    try {
-      const form = new FormData();
-      form.set("week", String(selectedWeek));
-      form.set("title", title || file.name);
-      form.set("description", description);
-      form.set("originalFileName", file.name);
-      form.set("file", file);
+    for (const item of queuedItems) {
+      updateQueueItem(item.id, { status: "uploading", message: "Uploading..." });
+      try {
+        const form = new FormData();
+        form.set("week", String(item.week));
+        form.set("title", item.title || cleanTitleFromFileName(item.file.name));
+        form.set("originalFileName", item.file.name);
+        form.set("file", item.file, item.file.name);
 
-      const response = await fetch("/api/admin/class-notes/upload", {
-        method: "POST",
-        body: form,
-      });
-      const payload = (await response.json()) as ClassNotesPayload;
-      if (!response.ok || !payload.ok || !payload.note) {
-        throw new Error(payload.error ?? "Upload failed.");
+        const response = await fetch("/api/admin/class-notes/upload", {
+          method: "POST",
+          body: form,
+        });
+        const payload = (await response.json()) as ClassNotesPayload;
+        if (!response.ok || !payload.ok || !payload.note) {
+          throw new Error(payload.error ?? "Upload failed.");
+        }
+
+        upsertNote(payload.note);
+        updateQueueItem(item.id, {
+          status: "uploaded",
+          message: "Uploaded",
+          note: payload.note,
+          title: payload.note.title,
+          week: payload.note.week,
+        });
+      } catch (error) {
+        updateQueueItem(item.id, {
+          status: "error",
+          message: error instanceof Error ? error.message : "Upload failed.",
+        });
       }
-
-      upsertNote(payload.note);
-      setTitle("");
-      setDescription("");
-      setFile(null);
-      event.currentTarget.reset();
-      setMessage("Uploaded class note.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Upload failed.");
-    } finally {
-      setUploading(false);
     }
+    setUploading(false);
   };
 
+  const queuedCount = queue.filter((item) => item.status === "queued").length;
+
   return (
-    <div className="space-y-4">
-      <form className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4" onSubmit={upload}>
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <h3 className="text-sm font-semibold">Upload Week {selectedWeek} Class Note</h3>
-            <p className="mt-1 text-xs text-muted">Allowed: PDF, PNG, JPG/JPEG, WEBP. Files are local portal assets only.</p>
-          </div>
-          <button type="submit" className="button-primary px-3 py-2 text-sm" disabled={uploading || !file}>
-            {uploading ? "Uploading..." : "Upload"}
+    <section className="surface-card p-5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="kicker">Files</p>
+          <h3 className="mt-1 text-base font-semibold">Bulk Class Notes upload</h3>
+          <p className="mt-1 text-sm text-muted">Drop PDF or image files, review titles and weeks, then upload them into the local portal.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="button-ghost gap-2 px-3 py-2 text-sm" onClick={() => fileInputRef.current?.click()}>
+            <FileText className="size-4" />
+            Choose files
+          </button>
+          <button
+            type="button"
+            className="button-primary gap-2 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={uploading || queuedCount === 0}
+            onClick={uploadQueuedFiles}
+          >
+            {uploading ? <LoaderCircle className="size-4 animate-spin" /> : <UploadCloud className="size-4" />}
+            Upload queued
           </button>
         </div>
-        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <TextField label="Title" value={title} onChange={setTitle} />
-          <label className="mt-3 block text-xs font-semibold text-muted">
-            File
-            <input
-              className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]"
-              type="file"
-              accept="application/pdf,image/png,image/jpeg,image/webp"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            />
-          </label>
-        </div>
-        <TextAreaField label="Description" value={description} onChange={setDescription} />
-        {message ? <p className="mt-3 rounded-xl bg-[var(--surface)] p-3 text-sm text-muted">{message}</p> : null}
-      </form>
+      </div>
 
-      <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-          <TextField label="Search class notes" value={query} onChange={setQuery} />
-          <label className="mt-3 block text-xs font-semibold text-muted lg:w-48">
+      <input
+        ref={fileInputRef}
+        className="sr-only"
+        aria-label="Class note files"
+        type="file"
+        multiple
+        accept="application/pdf,image/png,image/jpeg,image/webp"
+        onChange={handleFileInput}
+      />
+
+      <div
+        className={cn(
+          "mt-4 rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-6 text-center transition",
+          dragActive && "border-[var(--accent)] bg-[var(--accent-soft)]",
+        )}
+        onDragOver={(event) => {
+          event.preventDefault();
+          setDragActive(true);
+        }}
+        onDragLeave={() => setDragActive(false)}
+        onDrop={handleDrop}
+      >
+        <UploadCloud className="mx-auto size-8 text-[var(--accent)]" />
+        <p className="mt-2 text-sm font-semibold">Drop Class Notes here</p>
+        <p className="mt-1 text-xs text-muted">Allowed: PDF, PNG, JPG/JPEG, WEBP. Titles are generated from file names and can be edited before upload.</p>
+      </div>
+
+      {message ? <p className="mt-3 rounded-xl bg-[var(--surface-2)] p-3 text-sm text-muted">{message}</p> : null}
+
+      {queue.length > 0 ? (
+        <div className="mt-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Upload queue</p>
+            <button
+              type="button"
+              className="button-ghost gap-2 px-3 py-1.5 text-xs"
+              onClick={() => setQueue((current) => current.filter((item) => item.status !== "uploaded"))}
+            >
+              <X className="size-3.5" />
+              Clear uploaded
+            </button>
+          </div>
+          {queue.map((item) => (
+            <UploadQueueRow key={item.id} item={item} onUpdate={updateQueueItem} onRemove={(id) => setQueue((current) => current.filter((entry) => entry.id !== id))} />
+          ))}
+        </div>
+      ) : null}
+
+      <div className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_180px_auto] lg:items-end">
+          <TextField label="Search class notes" value={query} onChange={setQuery} icon={<Search className="size-4 text-muted" />} />
+          <label className="block text-xs font-semibold text-muted">
             Visibility
             <select
               className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]"
@@ -578,16 +749,79 @@ function ClassNotesManager({
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="mt-4 space-y-3">
         {filteredNotes.length > 0 ? (
           filteredNotes.map((note) => (
             <ClassNoteEditor key={note.id} note={note} onSaved={upsertNote} onDeleted={removeNote} />
           ))
         ) : (
-          <p className="text-sm text-muted">No Class Notes match the current Week {selectedWeek} filters.</p>
+          <p className="rounded-xl bg-[var(--surface-2)] p-3 text-sm text-muted">No Class Notes match the current Week {selectedWeek} filters.</p>
         )}
       </div>
-    </div>
+    </section>
+  );
+}
+
+function UploadQueueRow({
+  item,
+  onUpdate,
+  onRemove,
+}: {
+  item: UploadQueueItem;
+  onUpdate: (id: string, patch: Partial<UploadQueueItem>) => void;
+  onRemove: (id: string) => void;
+}) {
+  const editable = item.status === "queued" || item.status === "invalid" || item.status === "error";
+
+  return (
+    <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusChip tone={queueTone(item.status)}>{queueLabel(item.status)}</StatusChip>
+            <span className="text-xs text-muted">{formatFileSize(item.file.size)}</span>
+          </div>
+          <p className="mt-2 truncate text-sm font-semibold">{item.file.name}</p>
+          {item.message ? <p className="mt-1 text-xs text-muted">{item.message}</p> : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {item.note ? (
+            <a className="button-ghost gap-2 px-3 py-2 text-sm" href={item.note.previewHref} target="_blank" rel="noreferrer">
+              <Eye className="size-4" />
+              Preview
+            </a>
+          ) : null}
+          <button type="button" className="button-ghost gap-2 px-3 py-2 text-sm" disabled={item.status === "uploading"} onClick={() => onRemove(item.id)}>
+            <Trash2 className="size-4" />
+            Remove
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_140px]">
+        <TextField
+          label={`${item.file.name} title`}
+          value={item.title}
+          disabled={!editable}
+          onChange={(title) => onUpdate(item.id, { title })}
+        />
+        <label className="block text-xs font-semibold text-muted">
+          Week
+          <select
+            className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)] disabled:opacity-70"
+            value={item.week}
+            disabled={!editable}
+            onChange={(event) => onUpdate(item.id, { week: Number(event.target.value) as WeekNumber })}
+          >
+            {COURSE_WEEKS.map((week) => (
+              <option key={week} value={week}>
+                Week {week}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </article>
   );
 }
 
@@ -602,15 +836,10 @@ function ClassNoteEditor({
 }) {
   const [title, setTitle] = useState(note.title);
   const [week, setWeek] = useState<WeekNumber>(note.week);
-  const [description, setDescription] = useState(note.description ?? "");
   const [hidden, setHidden] = useState(note.hidden);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const dirty =
-    title !== note.title ||
-    week !== note.week ||
-    description !== (note.description ?? "") ||
-    hidden !== note.hidden;
+  const dirty = title !== note.title || week !== note.week || hidden !== note.hidden;
 
   const save = async () => {
     setPending(true);
@@ -619,7 +848,7 @@ function ClassNoteEditor({
       const response = await fetch(`/api/admin/class-notes/${note.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title, week, description, hidden }),
+        body: JSON.stringify({ title, week, hidden }),
       });
       const payload = (await response.json()) as ClassNotesPayload;
       if (!response.ok || !payload.ok || !payload.note) {
@@ -666,13 +895,16 @@ function ClassNoteEditor({
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <a className="button-ghost px-3 py-2 text-sm" href={note.previewHref} target="_blank" rel="noreferrer">
+          <a className="button-ghost gap-2 px-3 py-2 text-sm" href={note.previewHref} target="_blank" rel="noreferrer">
+            <Eye className="size-4" />
             Preview
           </a>
-          <button type="button" className="button-ghost px-3 py-2 text-sm" disabled={pending} onClick={remove}>
+          <button type="button" className="button-ghost gap-2 px-3 py-2 text-sm" disabled={pending} onClick={remove}>
+            <Trash2 className="size-4" />
             Delete
           </button>
-          <button type="button" className="button-primary px-3 py-2 text-sm" disabled={pending} onClick={save}>
+          <button type="button" className="button-primary gap-2 px-3 py-2 text-sm" disabled={pending || !dirty} onClick={save}>
+            {pending ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}
             {pending ? "Saving..." : "Save"}
           </button>
         </div>
@@ -680,7 +912,7 @@ function ClassNoteEditor({
 
       <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_140px_auto]">
         <TextField label="Title" value={title} onChange={setTitle} />
-        <label className="mt-3 block text-xs font-semibold text-muted">
+        <label className="block text-xs font-semibold text-muted">
           Week
           <select
             className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]"
@@ -694,12 +926,11 @@ function ClassNoteEditor({
             ))}
           </select>
         </label>
-        <label className="mt-3 flex items-end gap-2 pb-2 text-sm font-semibold">
+        <label className="flex items-end gap-2 pb-2 text-sm font-semibold">
           <input type="checkbox" checked={hidden} onChange={(event) => setHidden(event.target.checked)} />
           Hidden
         </label>
       </div>
-      <TextAreaField label="Description" value={description} onChange={setDescription} />
       {message ? <p className="mt-3 rounded-xl bg-[var(--surface)] p-3 text-sm text-muted">{message}</p> : null}
     </article>
   );
@@ -707,56 +938,68 @@ function ClassNoteEditor({
 
 function PreviewPanel({
   selectedWeek,
-  tasks,
-  resources,
+  rows,
   classNotes,
-  overrides,
 }: {
   selectedWeek: WeekNumber;
-  tasks: TaskItem[];
-  resources: ResourceItem[];
+  rows: ScheduleRow[];
   classNotes: ClassNoteItem[];
-  overrides: CourseAdminOverrides;
 }) {
-  const visibleTasks = tasks.filter((task) => {
-    const override = (isReflectionTask(task) ? overrides.reflections : overrides.tasks)[task.id];
-    return !override?.hidden;
-  });
-  const visibleResources = resources.filter((resource) => !overrides.resources[resource.id]?.hidden);
+  const visibleRows = rows.filter((row) => !row.hidden && (!row.canToggleDue || row.showDue));
   const visibleClassNotes = classNotes.filter((note) => !note.hidden);
 
   return (
-    <aside className="surface-card h-fit p-5" aria-label="Preview as student">
-      <p className="kicker">Preview as student</p>
-      <h3 className="mt-1 text-base font-semibold">Week {selectedWeek}</h3>
-      <p className="mt-1 text-sm text-muted">Only student-visible local portal content appears below.</p>
-      <div className="mt-4 space-y-4">
+    <section className="surface-card p-5" aria-label="Preview as student">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Visible tasks</p>
-          <div className="mt-2 space-y-2">
-            {visibleTasks.slice(0, 5).map((task) => {
-              const override = (isReflectionTask(task) ? overrides.reflections : overrides.tasks)[task.id];
-              return (
-                <div key={task.id} className="rounded-xl bg-[var(--surface-2)] p-3">
-                  <p className="text-sm font-semibold">{override?.title ?? task.title}</p>
-                  <p className="mt-1 text-xs text-muted">{override?.description ?? task.description}</p>
+          <p className="kicker">Preview as student</p>
+          <h3 className="mt-1 text-base font-semibold">Week {selectedWeek}</h3>
+          <p className="mt-1 text-sm text-muted">Only visible schedule dates and visible Class Notes appear below.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <StatusChip tone="neutral">{visibleRows.length} visible date(s)</StatusChip>
+          <StatusChip tone="neutral">{visibleClassNotes.length} visible file(s)</StatusChip>
+        </div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <CalendarDays className="size-4 text-[var(--accent)]" />
+            <p className="text-sm font-semibold">Visible dates</p>
+          </div>
+          <div className="space-y-2">
+            {visibleRows.length > 0 ? (
+              visibleRows.map((row) => (
+                <div key={`${row.kind}-${row.id}`} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{row.title}</p>
+                      <p className="mt-1 text-xs text-muted">{formatItemType(row.itemType)}</p>
+                    </div>
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--surface-2)] px-2.5 py-1 text-xs text-muted">
+                      <Clock className="size-3.5" />
+                      {formatDueDate(row.dueDate)}
+                    </span>
+                  </div>
                 </div>
-              );
-            })}
-            {visibleTasks.length === 0 ? <p className="text-sm text-muted">No visible tasks for this week.</p> : null}
+              ))
+            ) : (
+              <p className="text-sm text-muted">No visible dates for this week.</p>
+            )}
           </div>
         </div>
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Visible resources</p>
-          <p className="mt-2 text-sm text-muted">{visibleResources.length} resource card(s)</p>
-        </div>
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted">Visible class notes</p>
-          <div className="mt-2 space-y-2">
+
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <FileText className="size-4 text-[var(--accent)]" />
+            <p className="text-sm font-semibold">Visible Class Notes</p>
+          </div>
+          <div className="space-y-2">
             {visibleClassNotes.length > 0 ? (
-              visibleClassNotes.slice(0, 4).map((note) => (
-                <div key={note.id} className="rounded-xl bg-[var(--surface-2)] p-3">
-                  <p className="text-sm font-semibold">{note.title}</p>
+              visibleClassNotes.map((note) => (
+                <div key={note.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+                  <p className="truncate text-sm font-semibold">{note.title}</p>
                   <p className="mt-1 text-xs text-muted">{note.fileType.toUpperCase()} / {note.originalFileName}</p>
                 </div>
               ))
@@ -766,41 +1009,187 @@ function PreviewPanel({
           </div>
         </div>
       </div>
-    </aside>
+    </section>
   );
 }
 
-function HiddenToggle({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+function StatusChip({ tone, children }: { tone: ChipTone; children: ReactNode }) {
   return (
-    <label className="flex items-center gap-2 text-xs font-semibold text-muted">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
-      Hidden
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em]",
+        tone === "visible" && "bg-[var(--accent-soft)] text-[var(--accent)]",
+        tone === "hidden" && "bg-rose-500/10 text-[var(--danger)]",
+        tone === "dirty" && "bg-amber-500/15 text-[var(--warning)]",
+        tone === "saved" && "bg-emerald-500/10 text-[var(--success)]",
+        tone === "neutral" && "bg-[var(--surface-2)] text-muted",
+        tone === "error" && "bg-rose-500/10 text-[var(--danger)]",
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+function TextField({
+  label,
+  value,
+  onChange,
+  hideLabel = false,
+  disabled = false,
+  icon,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  hideLabel?: boolean;
+  disabled?: boolean;
+  icon?: ReactNode;
+}) {
+  return (
+    <label className="block text-xs font-semibold text-muted">
+      <span className={hideLabel ? "sr-only" : undefined}>{label}</span>
+      <span className={cn("relative block", !hideLabel && "mt-1")}>
+        {icon ? <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">{icon}</span> : null}
+        <input
+          className={cn(
+            "w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)] disabled:opacity-70",
+            Boolean(icon) && "pl-9",
+          )}
+          value={value}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </span>
     </label>
   );
 }
 
-function TextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return (
-    <label className="mt-3 block text-xs font-semibold text-muted">
-      {label}
-      <input
-        className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
-  );
+function buildQueueItem(file: File, selectedWeek: WeekNumber): UploadQueueItem {
+  const validationError = validateClassNoteFile(file);
+  return {
+    id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
+    file,
+    title: cleanTitleFromFileName(file.name),
+    week: selectedWeek,
+    status: validationError ? "invalid" : "queued",
+    message: validationError,
+  };
 }
 
-function TextAreaField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return (
-    <label className="mt-3 block text-xs font-semibold text-muted">
-      {label}
-      <textarea
-        className="mt-1 min-h-20 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm leading-6 text-[var(--text)] outline-none focus:border-[var(--accent)]"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
-  );
+function validateClassNoteFile(file: File) {
+  const lowerName = file.name.toLowerCase();
+  const extension = Object.keys(allowedClassNoteTypes).find((candidate) => lowerName.endsWith(candidate));
+  if (!extension) {
+    return "Only PDF, PNG, JPG, JPEG, and WEBP files are allowed.";
+  }
+
+  const allowedMimeTypes = allowedClassNoteTypes[extension];
+  if (file.type && !allowedMimeTypes.includes(file.type)) {
+    return "File type does not match the allowed extension.";
+  }
+
+  return undefined;
+}
+
+function cleanTitleFromFileName(fileName: string) {
+  return fileName
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160) || fileName;
+}
+
+function datePart(value: string) {
+  return value.slice(0, 10);
+}
+
+function timePart(value: string) {
+  const match = value.match(/T(\d{2}:\d{2})/);
+  return match?.[1] ?? "23:59";
+}
+
+function replaceDatePart(current: string, nextDate: string) {
+  if (!nextDate) {
+    return current;
+  }
+
+  return `${nextDate}T${timePart(current)}:00`;
+}
+
+function replaceTimePart(current: string, nextTime: string) {
+  if (!nextTime) {
+    return current;
+  }
+
+  return `${datePart(current)}T${nextTime}:00`;
+}
+
+function formatDueDate(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return `${datePart(value)} ${timePart(value)}`;
+}
+
+function formatSavedAt(value?: string) {
+  if (!value) {
+    return "not yet";
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")} ${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatItemType(value: ScheduleRow["itemType"]) {
+  return value
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function queueTone(status: QueueStatus): ChipTone {
+  if (status === "uploaded") {
+    return "saved";
+  }
+  if (status === "invalid" || status === "error") {
+    return "error";
+  }
+  if (status === "uploading") {
+    return "dirty";
+  }
+  return "neutral";
+}
+
+function queueLabel(status: QueueStatus) {
+  if (status === "queued") {
+    return "Queued";
+  }
+  if (status === "invalid") {
+    return "Invalid";
+  }
+  if (status === "uploading") {
+    return "Uploading";
+  }
+  if (status === "uploaded") {
+    return "Uploaded";
+  }
+  return "Error";
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024) {
+    return `${size} B`;
+  }
+  if (size < 1024 * 1024) {
+    return `${Math.round(size / 1024)} KB`;
+  }
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
